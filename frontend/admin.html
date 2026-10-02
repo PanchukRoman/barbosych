@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Panel</title>
+  <link rel="stylesheet" href="/static/style.css?v=3">
+</head>
+<body>
+  <!-- Hamburger Button -->
+  <button class="hamburger" id="hamburgerBtn" aria-label="Menu">
+    <span></span>
+    <span></span>
+    <span></span>
+  </button>
+
+  <!-- Sidebar Menu -->
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+  <nav class="sidebar" id="sidebar">
+    <button class="sidebar-close" id="sidebarClose" aria-label="Close menu">✕</button>
+    <div class="sidebar-content">
+      <div class="sidebar-section">
+        <h3>Navigation</h3>
+        <a href="/dashboard" class="sidebar-link">Dashboard</a>
+        <a href="/admin" class="sidebar-link active">Admin Panel</a>
+        <a href="#" class="sidebar-link" id="logoutBtn">Logout</a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Admin Header -->
+  <header class="admin-header">
+    <div class="header-content">
+      <h1>Admin Panel</h1>
+      <p class="admin-subtitle">Manage articles and events</p>
+    </div>
+  </header>
+
+  <!-- Admin Content -->
+  <main class="admin-main">
+    <!-- Tabs -->
+    <div class="admin-tabs">
+      <button class="admin-tab active" data-tab="articles" onclick="switchAdminTab('articles')">
+        Articles
+      </button>
+      <button class="admin-tab" data-tab="events" onclick="switchAdminTab('events')">
+        Events
+      </button>
+    </div>
+
+    <!-- Articles Section -->
+    <div id="articlesSection" class="admin-section">
+      <div class="section-header">
+        <h2>Articles</h2>
+        <button class="btn-primary" onclick="showArticleForm()">+ New Article</button>
+      </div>
+
+      <!-- Article Form (hidden by default) -->
+      <div id="articleForm" class="admin-form hidden">
+        <h3 id="articleFormTitle">New Article</h3>
+        <div class="form-group">
+          <label for="articleTitle">Title</label>
+          <input type="text" id="articleTitle" placeholder="Article title" maxlength="255">
+        </div>
+        <div class="form-group">
+          <label for="articleExcerpt">Excerpt (optional)</label>
+          <textarea id="articleExcerpt" placeholder="Short description" maxlength="500" rows="2"></textarea>
+        </div>
+        <div class="form-group">
+          <label for="articleContent">Content</label>
+          <textarea id="articleContent" placeholder="Write your article here..." rows="12"></textarea>
+        </div>
+        <div class="form-actions">
+          <button class="btn-primary" onclick="saveArticle()">Save Article</button>
+          <button class="btn-secondary" onclick="hideArticleForm()">Cancel</button>
+        </div>
+        <div class="message" id="articleMessage"></div>
+      </div>
+
+      <!-- Articles List -->
+      <div id="articlesList" class="admin-list">
+        <div class="loading" id="articlesLoading">
+          <div class="spinner"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Events Section -->
+    <div id="eventsSection" class="admin-section hidden">
+      <div class="section-header">
+        <h2>Events</h2>
+        <button class="btn-primary" onclick="showEventForm()">+ New Event</button>
+      </div>
+
+      <!-- Event Form (hidden by default) -->
+      <div id="eventForm" class="admin-form hidden">
+        <h3 id="eventFormTitle">New Event</h3>
+        <div class="form-group">
+          <label for="eventTitle">Title</label>
+          <input type="text" id="eventTitle" placeholder="Event title" maxlength="255">
+        </div>
+        <div class="form-group">
+          <label for="eventDescription">Description</label>
+          <textarea id="eventDescription" placeholder="Event description" rows="4"></textarea>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="eventDate">Date & Time</label>
+            <input type="datetime-local" id="eventDate">
+          </div>
+          <div class="form-group">
+            <label for="eventLocation">Location</label>
+            <input type="text" id="eventLocation" placeholder="Event location" maxlength="255">
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="eventMaxParticipants">Max Participants</label>
+          <input type="number" id="eventMaxParticipants" placeholder="50" min="1" value="50">
+        </div>
+        <div class="form-actions">
+          <button class="btn-primary" onclick="saveEvent()">Save Event</button>
+          <button class="btn-secondary" onclick="hideEventForm()">Cancel</button>
+        </div>
+        <div class="message" id="eventMessage"></div>
+      </div>
+
+      <!-- Events List -->
+      <div id="eventsList" class="admin-list">
+        <div class="loading" id="eventsLoading">
+          <div class="spinner"></div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script src="/static/admin.js?v=3"></script>
+</body>
+</html>
