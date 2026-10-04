@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Панель администратора</title>
+  <link rel="stylesheet" href="/static/style.css?v=5">
+</head>
+<body>
+  <!-- Hamburger Button -->
+  <button class="hamburger" id="hamburgerBtn" aria-label="Menu">
+    <span></span>
+    <span></span>
+    <span></span>
+  </button>
+
+  <!-- Sidebar Menu -->
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+  <nav class="sidebar" id="sidebar">
+    <button class="sidebar-close" id="sidebarClose" aria-label="Close menu">✕</button>
+    <div class="sidebar-content">
+      <div class="sidebar-section">
+        <h3>Навигация</h3>
+        <a href="/dashboard" class="sidebar-link">Личный кабинет</a>
+        <a href="/admin" class="sidebar-link active">Панель администратора</a>
+        <a href="#" class="sidebar-link" id="logoutBtn">Выйти</a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Admin Header -->
+  <header class="admin-header">
+    <div class="header-content">
+      <h1>Панель администратора</h1>
+      <p class="admin-subtitle">Управление статьями и событиями</p>
+    </div>
+  </header>
+
+  <!-- Admin Content -->
+  <main class="admin-main">
+    <!-- Tabs -->
+    <div class="admin-tabs">
+      <button class="admin-tab active" data-tab="articles" onclick="switchAdminTab('articles')">
+        Статьи
+      </button>
+      <button class="admin-tab" data-tab="events" onclick="switchAdminTab('events')">
+        События
+      </button>
+    </div>
+
+    <!-- Articles Section -->
+    <div id="articlesSection" class="admin-section">
+      <div class="section-header">
+        <h2>Статьи</h2>
+        <button class="btn-primary" onclick="showArticleForm()">+ Новая статья</button>
+      </div>
+
+      <!-- Article Form (hidden by default) -->
+      <div id="articleForm" class="admin-form hidden">
+        <h3 id="articleFormTitle">Новая статья</h3>
+        <div class="form-group">
+          <label for="articleTitle">Заголовок</label>
+          <input type="text" id="articleTitle" placeholder="Заголовок статьи" maxlength="255">
+        </div>
+        <div class="form-group">
+          <label for="articleExcerpt">Краткое описание (необязательно)</label>
+          <textarea id="articleExcerpt" placeholder="Краткое описание" maxlength="500" rows="2"></textarea>
+        </div>
+        <div class="form-group">
+          <label for="articleContent">Содержание</label>
+          <textarea id="articleContent" placeholder="Напишите статью здесь..." rows="12"></textarea>
+        </div>
+        <div class="form-actions">
+          <button class="btn-primary" onclick="saveArticle()">Сохранить статью</button>
+          <button class="btn-secondary" onclick="hideArticleForm()">Отмена</button>
+        </div>
+        <div class="message" id="articleMessage"></div>
+      </div>
+
+      <!-- Articles List -->
+      <div id="articlesList" class="admin-list">
+        <div class="loading" id="articlesLoading">
+          <div class="spinner"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Events Section -->
+    <div id="eventsSection" class="admin-section hidden">
+      <div class="section-header">
+        <h2>События</h2>
+        <button class="btn-primary" onclick="showEventForm()">+ Новое событие</button>
+      </div>
+
+      <!-- Event Form (hidden by default) -->
+      <div id="eventForm" class="admin-form hidden">
+        <h3 id="eventFormTitle">Новое событие</h3>
+        <div class="form-group">
+          <label for="eventTitle">Заголовок</label>
+          <input type="text" id="eventTitle" placeholder="Название события" maxlength="255">
+        </div>
+        <div class="form-group">
+          <label for="eventDescription">Описание</label>
+          <textarea id="eventDescription" placeholder="Описание события" rows="4"></textarea>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="eventDate">Дата и время</label>
+            <input type="datetime-local" id="eventDate">
+          </div>
+          <div class="form-group">
+            <label for="eventLocation">Место проведения</label>
+            <input type="text" id="eventLocation" placeholder="Место проведения события" maxlength="255">
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="eventMaxParticipants">Максимум участников</label>
+          <input type="number" id="eventMaxParticipants" placeholder="50" min="1" value="50">
+        </div>
+        <div class="form-actions">
+          <button class="btn-primary" onclick="saveEvent()">Сохранить событие</button>
+          <button class="btn-secondary" onclick="hideEventForm()">Отмена</button>
+        </div>
+        <div class="message" id="eventMessage"></div>
+      </div>
+
+      <!-- Events List -->
+      <div id="eventsList" class="admin-list">
+        <div class="loading" id="eventsLoading">
+          <div class="spinner"></div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script src="/static/admin.js?v=5"></script>
+</body>
+</html>

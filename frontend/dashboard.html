@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Личный кабинет</title>
+  <link rel="stylesheet" href="/static/style.css?v=5">
+</head>
+<body>
+  <!-- Hamburger Button -->
+  <button class="hamburger" id="hamburgerBtn" aria-label="Menu">
+    <span></span>
+    <span></span>
+    <span></span>
+  </button>
+
+  <!-- Sidebar Menu -->
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+  <nav class="sidebar" id="sidebar">
+    <button class="sidebar-close" id="sidebarClose" aria-label="Close menu">✕</button>
+      <div class="sidebar-content">
+      <div class="sidebar-section">
+        <h3>Навигация</h3>
+        <a href="/dashboard" class="sidebar-link active">Личный кабинет</a>
+        <a href="/admin" class="sidebar-link" id="adminLink" style="display: none;">Панель администратора</a>
+        <a href="#" class="sidebar-link" id="logoutBtn">Выйти</a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Header -->
+  <header class="dashboard-header">
+    <div class="header-content">
+      <h1>Личный кабинет</h1>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <main class="dashboard-main">
+    <!-- Notification Bell -->
+    <div class="notification-bell" id="notificationBell" style="display: none;">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M14.857 17.082a23.848 23.848 0 0 0 5.454-1.31A8.967 8.967 0 0 1 18 9.75V9A6 6 0 0 0 6 9v.75a8.967 8.967 0 0 1-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 0 1-5.714 0m5.714 0a3 3 0 1 1-5.714 0"/>
+      </svg>
+      <span class="notification-badge" id="notificationBadge">0</span>
+    </div>
+
+    <!-- Notification Dropdown -->
+    <div class="notification-dropdown hidden" id="notificationDropdown">
+      <div class="notification-header">
+        <h3>Уведомления</h3>
+        <button class="notification-clear" onclick="clearNotifications()">Очистить</button>
+      </div>
+      <div class="notification-list" id="notificationList">
+        <p class="empty-notifications">Нет новых уведомлений</p>
+      </div>
+    </div>
+
+    <div class="profile-card hidden" id="profileCard">
+      <div class="profile-avatar">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z"/>
+        </svg>
+      </div>
+      <div class="profile-info">
+        <h2 class="profile-name" id="profileEmail">Loading...</h2>
+        <div class="profile-details">
+          <div class="detail-row">
+            <span class="detail-label">ID аккаунта</span>
+            <span class="detail-value" id="profileId">—</span>
+          </div>
+          <div class="detail-row">
+            <span class="detail-label">Зарегистрирован</span>
+            <span class="detail-value" id="profileCreated">—</span>
+          </div>
+          <div class="detail-row">
+            <span class="detail-label">Статус</span>
+            <span class="detail-value status-active">Активен</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Loading state -->
+    <div class="loading" id="loading">
+      <div class="spinner"></div>
+    </div>
+
+    <!-- Error state -->
+    <div class="error-message hidden" id="errorMessage"></div>
+  </main>
+
+  <!-- Article Detail Modal -->
+  <div class="article-modal-overlay hidden" id="articleModal">
+    <div class="article-modal">
+      <button class="article-modal-close" onclick="closeArticleDetail()">✕</button>
+      <div class="article-modal-content">
+        <h1 class="article-modal-title" id="articleModalTitle">Загрузка...</h1>
+        <div class="article-modal-meta">
+          <span class="article-modal-date" id="articleModalDate"></span>
+        </div>
+        <div class="article-modal-body" id="articleModalBody"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Event Detail Modal -->
+  <div class="event-modal-overlay hidden" id="eventModal">
+    <div class="event-modal">
+      <button class="event-modal-close" onclick="closeEventDetail()">✕</button>
+      <div class="event-modal-content">
+        <h1 class="event-modal-title" id="eventModalTitle">Загрузка...</h1>
+        <div class="event-modal-meta">
+          <span class="event-modal-date" id="eventModalDate"></span>
+          <span class="event-modal-location" id="eventModalLocation"></span>
+          <span class="event-modal-participants" id="eventModalParticipants"></span>
+        </div>
+        <div class="event-modal-body" id="eventModalBody"></div>
+        <div class="event-modal-actions" id="eventModalActions"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/dashboard.js?v=6"></script>
+</body>
+</html>
