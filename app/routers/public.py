@@ -1,10 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from ..database import get_db
 from ..deps import get_current_user
-from ..models import Article, Event, EventRegistration, User
-from ..schemas import EventRead, EventRegistrationRead
+from ..models import Article, Event, EventRegistration, User, Dog
+from ..schemas import EventRead, EventRegistrationRead, ParticipantRead, DogReadSimple
 
 router = APIRouter(tags=["Public"])
 
@@ -104,6 +104,33 @@ def get_event(
         ).first()
     )
 
+    # Получаем список участников с информацией о пользователе и собаках
+    registrations = db.query(EventRegistration).filter(
+        EventRegistration.event_id == event.id
+    ).all()
+
+    participants = []
+    for reg in registrations:
+        user = db.query(User).filter(User.id == reg.user_id).first()
+        if user:
+            dogs = db.query(Dog).filter(Dog.owner_id == user.id).all()
+            dogs_data = [
+                {
+                    "id": dog.id,
+                    "name": dog.name,
+                    "breed": dog.breed,
+                    "age": dog.age,
+                }
+                for dog in dogs
+            ]
+            participants.append({
+                "user_id": user.id,
+                "email": user.email,
+                "avatar": user.avatar,
+                "dogs": dogs_data,
+                "registered_at": reg.registered_at.isoformat(),
+            })
+
     return {
         "id": event.id,
         "title": event.title,
@@ -114,6 +141,7 @@ def get_event(
         "registered_count": registered_count,
         "is_registered": is_registered,
         "created_at": event.created_at.isoformat(),
+        "participants": participants,
     }
 
 

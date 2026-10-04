@@ -4,15 +4,18 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Личный кабинет</title>
-  <link rel="stylesheet" href="/static/style.css?v=5">
+  <link rel="stylesheet" href="/static/style.css?v=12">
 </head>
 <body>
-  <!-- Hamburger Button -->
+  <!-- Hamburger Button (mobile) -->
   <button class="hamburger" id="hamburgerBtn" aria-label="Menu">
     <span></span>
     <span></span>
     <span></span>
   </button>
+
+  <!-- Desktop Sidebar Toggle -->
+  <button class="desktop-sidebar-toggle" id="desktopSidebarToggle" aria-label="Toggle sidebar">☰</button>
 
   <!-- Sidebar Menu -->
   <div class="sidebar-overlay" id="sidebarOverlay"></div>
@@ -56,27 +59,48 @@
       </div>
     </div>
 
+    <!-- Profile Card -->
     <div class="profile-card hidden" id="profileCard">
-      <div class="profile-avatar">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-          <path d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z"/>
-        </svg>
+      <div class="profile-header">
+        <div class="profile-avatar-wrapper">
+          <div class="profile-avatar" id="profileAvatar">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z"/>
+            </svg>
+          </div>
+          <button class="avatar-edit-btn" onclick="document.getElementById('avatarInput').click()" title="Изменить аватар">📷</button>
+          <input type="file" id="avatarInput" accept="image/jpeg,image/png,image/webp" style="display: none;" onchange="uploadAvatar(this)">
+        </div>
+        <div class="profile-info">
+          <h2 class="profile-name" id="profileEmail">Loading...</h2>
+          <div class="profile-details">
+            <div class="detail-row">
+              <span class="detail-label">ID аккаунта</span>
+              <span class="detail-value" id="profileId">—</span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">Зарегистрирован</span>
+              <span class="detail-value" id="profileCreated">—</span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">Статус</span>
+              <span class="detail-value status-active">Активен</span>
+            </div>
+          </div>
+          <button class="btn-edit-profile" onclick="openEditProfileModal()">Редактировать профиль</button>
+        </div>
       </div>
-      <div class="profile-info">
-        <h2 class="profile-name" id="profileEmail">Loading...</h2>
-        <div class="profile-details">
-          <div class="detail-row">
-            <span class="detail-label">ID аккаунта</span>
-            <span class="detail-value" id="profileId">—</span>
-          </div>
-          <div class="detail-row">
-            <span class="detail-label">Зарегистрирован</span>
-            <span class="detail-value" id="profileCreated">—</span>
-          </div>
-          <div class="detail-row">
-            <span class="detail-label">Статус</span>
-            <span class="detail-value status-active">Активен</span>
-          </div>
+    </div>
+
+    <!-- Dogs Section -->
+    <div class="dashboard-section hidden" id="dogsSection">
+      <div class="section-header">
+        <h2 class="section-title">Мои собаки</h2>
+        <button class="btn-primary" onclick="openAddDogModal()">+ Добавить собаку</button>
+      </div>
+      <div id="dogsList" class="dogs-grid">
+        <div class="loading" id="dogsLoading">
+          <div class="spinner"></div>
         </div>
       </div>
     </div>
@@ -116,11 +140,65 @@
           <span class="event-modal-participants" id="eventModalParticipants"></span>
         </div>
         <div class="event-modal-body" id="eventModalBody"></div>
+        
+        <!-- Participants List -->
+        <div class="participants-section" id="participantsSection" style="display: none;">
+          <h3 class="participants-title">Участники</h3>
+          <div id="participantsList" class="participants-list"></div>
+        </div>
+        
         <div class="event-modal-actions" id="eventModalActions"></div>
       </div>
     </div>
   </div>
 
-  <script src="/static/dashboard.js?v=6"></script>
+  <!-- Edit Profile Modal -->
+  <div class="modal-overlay hidden" id="editProfileModal">
+    <div class="modal">
+      <button class="modal-close" onclick="closeEditProfileModal()">✕</button>
+      <h2>Редактировать профиль</h2>
+      <form id="editProfileForm" onsubmit="saveProfile(event)">
+        <div class="form-group">
+          <label for="editEmail">Email</label>
+          <input type="email" id="editEmail" required>
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="btn-primary" id="saveProfileBtn">Сохранить</button>
+          <button type="button" class="btn-secondary" onclick="closeEditProfileModal()">Отмена</button>
+        </div>
+        <div class="message" id="profileMessage"></div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Add/Edit Dog Modal -->
+  <div class="modal-overlay hidden" id="dogModal">
+    <div class="modal">
+      <button class="modal-close" onclick="closeDogModal()">✕</button>
+      <h2 id="dogModalTitle">Добавить собаку</h2>
+      <form id="dogForm" onsubmit="saveDog(event)">
+        <input type="hidden" id="dogId">
+        <div class="form-group">
+          <label for="dogName">Кличка</label>
+          <input type="text" id="dogName" required placeholder="Кличка собаки" maxlength="100">
+        </div>
+        <div class="form-group">
+          <label for="dogBreed">Порода</label>
+          <input type="text" id="dogBreed" required placeholder="Порода" maxlength="100">
+        </div>
+        <div class="form-group">
+          <label for="dogAge">Возраст (лет)</label>
+          <input type="number" id="dogAge" required min="0" max="30" placeholder="0">
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="btn-primary" id="saveDogBtn">Сохранить</button>
+          <button type="button" class="btn-secondary" onclick="closeDogModal()">Отмена</button>
+        </div>
+        <div class="message" id="dogMessage"></div>
+      </form>
+    </div>
+  </div>
+
+  <script src="/static/dashboard.js?v=10"></script>
 </body>
 </html>

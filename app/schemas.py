@@ -18,7 +18,13 @@ class UserRead(BaseModel):
     id: int
     email: EmailStr
     role: str
+    avatar: str | None
     created_at: datetime
+
+
+class UserUpdate(BaseModel):
+    """Обновление профиля пользователя."""
+    email: EmailStr | None = None
 
 
 class Token(BaseModel):
@@ -111,6 +117,7 @@ class EventRead(BaseModel):
 
     registered_count: int = 0
     is_registered: bool = False
+    participants: list["ParticipantRead"] = []
 
 
 class EventRegistrationRequest(BaseModel):
@@ -126,3 +133,52 @@ class EventRegistrationRead(BaseModel):
     user_id: int
     event_id: int
     registered_at: datetime
+
+
+class DogReadSimple(BaseModel):
+    """Минимальная информация о собаке."""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    breed: str
+    age: int
+
+
+class ParticipantRead(BaseModel):
+    """Информация об участнике события."""
+    user_id: int
+    email: str
+    avatar: str | None
+    dogs: list[DogReadSimple] = []
+    registered_at: datetime
+
+
+# ========================
+# Собаки
+# ========================
+
+class DogCreate(BaseModel):
+    """Добавление собаки в профиль."""
+    name: str = Field(..., min_length=1, max_length=100)
+    breed: str = Field(..., min_length=1, max_length=100)
+    age: int = Field(..., ge=0, le=30)
+
+
+class DogUpdate(BaseModel):
+    """Обновление информации о собаке."""
+    name: str | None = Field(default=None, min_length=1, max_length=100)
+    breed: str | None = Field(default=None, min_length=1, max_length=100)
+    age: int | None = Field(default=None, ge=0, le=30)
+
+
+class DogRead(BaseModel):
+    """Чтение информации о собаке."""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    breed: str
+    age: int
+    owner_id: int
+    created_at: datetime

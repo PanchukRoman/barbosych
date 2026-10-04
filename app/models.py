@@ -15,6 +15,7 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     hashed_password: Mapped[str] = mapped_column(String(255))
     role: Mapped[str] = mapped_column(String(20), default="reader")
+    avatar: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -25,6 +26,7 @@ class User(Base):
     event_registrations: Mapped[list["EventRegistration"]] = relationship(
         back_populates="user", lazy="selectin"
     )
+    dogs: Mapped[list["Dog"]] = relationship(back_populates="owner", lazy="selectin", cascade="all, delete-orphan")
 
 
 class Article(Base):
@@ -83,3 +85,20 @@ class EventRegistration(Base):
 
     user: Mapped["User"] = relationship(back_populates="event_registrations", lazy="selectin")
     event: Mapped["Event"] = relationship(back_populates="registrations", lazy="selectin")
+
+
+class Dog(Base):
+    """Таблица собак. У пользователя может быть много собак."""
+
+    __tablename__ = "dogs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(100))
+    breed: Mapped[str] = mapped_column(String(100))
+    age: Mapped[int] = mapped_column(Integer)
+    owner_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    owner: Mapped["User"] = relationship(back_populates="dogs", lazy="selectin")

@@ -298,6 +298,31 @@ body::before {
   transform: rotate(-45deg) translate(5px, -5px);
 }
 
+/* ===== Desktop Sidebar Toggle ===== */
+.desktop-sidebar-toggle {
+  display: none;
+  position: fixed;
+  top: 16px;
+  left: 16px;
+  z-index: 1000;
+  width: 44px;
+  height: 44px;
+  background-color: #25282c;
+  border: 1px solid #2e3238;
+  border-radius: 8px;
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+  color: #e0e0e0;
+  font-size: 20px;
+  transition: all 0.2s ease;
+}
+
+.desktop-sidebar-toggle:hover {
+  background-color: #2e3238;
+  border-color: #4a4f57;
+}
+
 /* ===== Sidebar ===== */
 .sidebar {
   position: fixed;
@@ -323,12 +348,20 @@ body::before {
     left: 0;
   }
 
+  .sidebar.collapsed {
+    left: -300px;
+  }
+
   .sidebar-overlay {
     display: none;
   }
 
   .hamburger {
     display: none;
+  }
+
+  .desktop-sidebar-toggle {
+    display: flex;
   }
 }
 
@@ -414,7 +447,7 @@ body::before {
 
 /* ===== Dashboard ===== */
 .dashboard-header {
-  padding: 24px 24px 0;
+  padding: 24px 24px 0 72px;
   margin-top: 20px;
 }
 
@@ -488,7 +521,7 @@ body::before {
 
 /* ===== Admin Panel ===== */
 .admin-header {
-  padding: 24px 24px 0;
+  padding: 24px 24px 0 72px;
   margin-top: 20px;
 }
 
@@ -1038,6 +1071,23 @@ body::before {
 
 .btn-register.registered:hover {
   background-color: #2ecc71;
+}
+
+.btn-unregister {
+  padding: 8px 16px;
+  background-color: #e74c3c;
+  border: none;
+  border-radius: 8px;
+  color: #ffffff;
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+  font-weight: 500;
+}
+
+.btn-unregister:hover {
+  background-color: #c0392b;
 }
 
 /* ===== Delete Confirmation Modal ===== */
@@ -1598,4 +1648,441 @@ body::before {
   .event-modal-title {
     font-size: 20px;
   }
+}
+
+/* ===== Profile Header ===== */
+.profile-header {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+  margin-bottom: 24px;
+}
+
+.profile-avatar-wrapper {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.profile-avatar {
+  width: 100px;
+  height: 100px;
+  border-radius: 50%;
+  background-color: #25282c;
+  border: 2px solid #2e3238;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.profile-avatar svg {
+  width: 50px;
+  height: 50px;
+  color: #8a8f98;
+}
+
+.avatar-edit-btn {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  background: #25282c;
+  border: 2px solid #2e3238;
+  border-radius: 50%;
+  width: 32px;
+  height: 32px;
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.avatar-edit-btn:hover {
+  background: #2e3238;
+  border-color: #4a4f57;
+}
+
+.profile-info {
+  flex: 1;
+}
+
+.btn-edit-profile {
+  margin-top: 12px;
+  padding: 8px 16px;
+  background: #25282c;
+  border: 1px solid #2e3238;
+  border-radius: 6px;
+  color: #e0e0e0;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.2s ease;
+}
+
+.btn-edit-profile:hover {
+  background: #2e3238;
+  border-color: #4a4f57;
+}
+
+/* ===== Dogs Section ===== */
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.dogs-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.dog-card {
+  background: #1e2125;
+  border: 1px solid #2e3238;
+  border-radius: 8px;
+  padding: 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.dog-card-info {
+  flex: 1;
+}
+
+.dog-card-name {
+  font-size: 18px;
+  font-weight: 600;
+  color: #e0e0e0;
+  margin: 0 0 4px 0;
+}
+
+.dog-card-breed {
+  font-size: 14px;
+  color: #8a8f98;
+  margin: 0 0 4px 0;
+}
+
+.dog-card-age {
+  font-size: 13px;
+  color: #5a5f68;
+  margin: 0;
+}
+
+.dog-card-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.btn-edit-dog,
+.btn-delete-dog {
+  background: #25282c;
+  border: 1px solid #2e3238;
+  border-radius: 6px;
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 16px;
+  transition: all 0.2s ease;
+}
+
+.btn-edit-dog:hover {
+  background: #2e3238;
+  border-color: #4a4f57;
+}
+
+.btn-delete-dog:hover {
+  background: rgba(231, 76, 60, 0.1);
+  border-color: #e74c3c;
+}
+
+/* ===== Modal ===== */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.7);
+  z-index: 1001;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.modal-overlay.hidden {
+  display: none;
+}
+
+.modal {
+  background: #1e2125;
+  border: 1px solid #2e3238;
+  border-radius: 12px;
+  padding: 24px;
+  max-width: 500px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+  position: relative;
+}
+
+.modal h2 {
+  font-size: 20px;
+  font-weight: 600;
+  color: #e0e0e0;
+  margin: 0 0 20px 0;
+}
+
+.modal-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  background: none;
+  border: none;
+  color: #8a8f98;
+  font-size: 20px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+}
+
+.modal-close:hover {
+  color: #e0e0e0;
+  background-color: #2e3238;
+}
+
+.form-group {
+  margin-bottom: 16px;
+}
+
+.form-group label {
+  display: block;
+  font-size: 14px;
+  color: #8a8f98;
+  margin-bottom: 6px;
+}
+
+.form-group input,
+.form-group textarea {
+  width: 100%;
+  padding: 10px 12px;
+  background: #25282c;
+  border: 1px solid #2e3238;
+  border-radius: 6px;
+  color: #e0e0e0;
+  font-size: 14px;
+  font-family: inherit;
+  transition: border-color 0.2s ease;
+}
+
+.form-group input:focus,
+.form-group textarea:focus {
+  outline: none;
+  border-color: #4a4f57;
+}
+
+.form-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.btn-primary {
+  padding: 10px 20px;
+  background: #e5a92e;
+  border: none;
+  border-radius: 6px;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-primary:hover {
+  background: #d49a25;
+}
+
+.btn-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn-secondary {
+  padding: 10px 20px;
+  background: #25282c;
+  border: 1px solid #2e3238;
+  border-radius: 6px;
+  color: #e0e0e0;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-secondary:hover {
+  background: #2e3238;
+  border-color: #4a4f57;
+}
+
+.message {
+  margin-top: 12px;
+  font-size: 14px;
+}
+
+.message.error {
+  color: #e74c3c;
+}
+
+.message.success {
+  color: #2ecc71;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .profile-header {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+  }
+
+  .profile-info {
+    text-align: center;
+  }
+
+  .btn-edit-profile {
+    margin-top: 12px;
+  }
+
+  .dog-card {
+    flex-direction: column;
+    gap: 12px;
+    text-align: center;
+  }
+
+  .dog-card-actions {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .modal {
+    margin: 10px;
+    max-height: 95vh;
+  }
+}
+
+/* ===== Participants ===== */
+.participants-section {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid #2e3238;
+}
+
+.participants-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: #e0e0e0;
+  margin: 0 0 16px 0;
+}
+
+.participants-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.participant-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #1e2125;
+  border: 1px solid #2e3238;
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.participant-avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background-color: #25282c;
+  border: 2px solid #2e3238;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.participant-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.participant-avatar svg {
+  width: 24px;
+  height: 24px;
+  color: #8a8f98;
+}
+
+.participant-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.participant-email {
+  font-size: 14px;
+  font-weight: 500;
+  color: #e0e0e0;
+  margin-bottom: 4px;
+  word-break: break-all;
+}
+
+.participant-dogs {
+  font-size: 13px;
+  color: #8a8f98;
+}
+
+.participant-no-dogs {
+  font-size: 13px;
+  color: #5a5f68;
+  font-style: italic;
+}
+
+/* ===== Toast Notifications ===== */
+.toast-notification {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%) translateY(100px);
+  padding: 12px 24px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #fff;
+  z-index: 10000;
+  opacity: 0;
+  transition: all 0.3s ease;
+  max-width: 90%;
+  text-align: center;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.toast-notification.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+.toast-success {
+  background: #2ecc71;
+}
+
+.toast-error {
+  background: #e74c3c;
+}
+
+.toast-info {
+  background: #3498db;
 }

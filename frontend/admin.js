@@ -7,10 +7,12 @@ const sidebar = document.getElementById('sidebar');
 const sidebarOverlay = document.getElementById('sidebarOverlay');
 const sidebarClose = document.getElementById('sidebarClose');
 const logoutBtn = document.getElementById('logoutBtn');
+const desktopSidebarToggle = document.getElementById('desktopSidebarToggle');
 
 function openSidebar() {
   hamburgerBtn.classList.add('active');
   sidebar.classList.add('open');
+  sidebar.classList.remove('collapsed');
   sidebarOverlay.classList.add('visible');
 }
 
@@ -18,6 +20,11 @@ function closeSidebar() {
   hamburgerBtn.classList.remove('active');
   sidebar.classList.remove('open');
   sidebarOverlay.classList.remove('visible');
+  
+  // На десктопе вместо закрытия — сворачиваем
+  if (window.innerWidth >= 768) {
+    sidebar.classList.add('collapsed');
+  }
 }
 
 hamburgerBtn.addEventListener('click', () => {
@@ -27,6 +34,14 @@ hamburgerBtn.addEventListener('click', () => {
 
 sidebarClose.addEventListener('click', closeSidebar);
 sidebarOverlay.addEventListener('click', closeSidebar);
+
+// Desktop sidebar toggle
+if (desktopSidebarToggle) {
+  desktopSidebarToggle.addEventListener('click', () => {
+    sidebar.classList.toggle('collapsed');
+  });
+}
+
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') closeSidebar();
 });

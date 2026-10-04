@@ -4,10 +4,12 @@ const sidebar = document.getElementById('sidebar');
 const sidebarOverlay = document.getElementById('sidebarOverlay');
 const sidebarClose = document.getElementById('sidebarClose');
 const logoutBtn = document.getElementById('logoutBtn');
+const desktopSidebarToggle = document.getElementById('desktopSidebarToggle');
 
 function openSidebar() {
   hamburgerBtn.classList.add('active');
   sidebar.classList.add('open');
+  sidebar.classList.remove('collapsed');
   sidebarOverlay.classList.add('visible');
 }
 
@@ -15,6 +17,11 @@ function closeSidebar() {
   hamburgerBtn.classList.remove('active');
   sidebar.classList.remove('open');
   sidebarOverlay.classList.remove('visible');
+  
+  // На десктопе вместо закрытия — сворачиваем
+  if (window.innerWidth >= 768) {
+    sidebar.classList.add('collapsed');
+  }
 }
 
 hamburgerBtn.addEventListener('click', () => {
@@ -27,6 +34,13 @@ hamburgerBtn.addEventListener('click', () => {
 
 sidebarClose.addEventListener('click', closeSidebar);
 sidebarOverlay.addEventListener('click', closeSidebar);
+
+// Desktop sidebar toggle
+if (desktopSidebarToggle) {
+  desktopSidebarToggle.addEventListener('click', () => {
+    sidebar.classList.toggle('collapsed');
+  });
+}
 
 // Закрытие по Escape
 document.addEventListener('keydown', (e) => {
@@ -80,12 +94,21 @@ async function loadProfile() {
     document.getElementById('profileId').textContent = `#${user.id}`;
     document.getElementById('profileCreated').textContent = formatDate(user.created_at);
 
+    // Аватар
+    const avatarEl = document.getElementById('profileAvatar');
+    if (user.avatar) {
+      avatarEl.innerHTML = `<img src="/static/avatars/${user.avatar}" alt="Avatar" style="width: 100%; height: 100%; object-fit: cover; border-radius: 50%;">`;
+    } else {
+      avatarEl.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z"/></svg>`;
+    }
+
     // Показываем карточку, скрываем лоадер
     loadingEl.classList.add('hidden');
     profileCard.classList.remove('hidden');
 
     // Загружаем статьи и события
     loadContent(user.role);
+    loadDogs();
   } catch (err) {
     console.error('Ошибка загрузки профиля:', err);
     loadingEl.classList.add('hidden');
@@ -131,10 +154,10 @@ async function loadContent(role) {
       renderEvents(events);
     }
 
-    // Если есть админ-панель, показываем ссылку
-    if (role === 'admin') {
-      const adminLink = document.getElementById('adminLink');
-      if (adminLink) {
+    // Показываем/скрываем ссылку на админ-панель
+    const adminLink = document.getElementById('adminLink');
+    if (adminLink) {
+      if (role === 'admin') {
         adminLink.style.display = 'block';
         // При клике передаём токен через query parameter
         adminLink.addEventListener('click', (e) => {
@@ -144,8 +167,12 @@ async function loadContent(role) {
             window.location.href = '/admin?token=' + token;
           }
         });
+      } else {
+        adminLink.style.display = 'none';
       }
-    } else {
+    }
+
+    if (role !== 'admin') {
       // Для обычных пользователей показываем колокольчик уведомлений
       const bell = document.getElementById('notificationBell');
       if (bell) {
@@ -230,10 +257,10 @@ async function registerEvent(eventId, btn) {
       btn.disabled = true;
     } else {
       const data = await response.json();
-      alert(data.detail || 'Ошибка записи');
+      showToast(data.detail || 'Ошибка записи', 'error');
     }
   } catch (err) {
-    alert('Ошибка сети');
+    showToast('Ошибка сети', 'error');
   }
 }
 
@@ -281,11 +308,18 @@ async function showEventDetail(eventId) {
     participantsEl.textContent = `👥 Записано: ${event.registered_count}/${event.max_participants}`;
     bodyEl.innerHTML = `<div class="event-content">${escapeHtml(event.description).replace(/\n/g, '<br>')}</div>`;
 
+    // Отображаем участников
+    if (event.participants && event.participants.length > 0) {
+      renderParticipants(event.participants);
+    } else {
+      document.getElementById('participantsSection').style.display = 'none';
+    }
+
     // Кнопка записи/отмены
     if (event.is_registered) {
       actionsEl.innerHTML = `
-        <button class="btn-register registered" disabled>
-          Вы записаны ✓
+        <button class="btn-unregister" onclick="unregisterEvent(${event.id})">
+          Отписаться
         </button>`;
     } else {
       actionsEl.innerHTML = `
@@ -344,12 +378,12 @@ async function registerEventFromModal(eventId) {
       }
     } else {
       const data = await response.json();
-      alert(data.detail || 'Ошибка записи');
+      showToast(data.detail || 'Ошибка записи', 'error');
       btn.textContent = 'Записаться';
       btn.disabled = false;
     }
   } catch (err) {
-    alert('Ошибка сети');
+    showToast('Ошибка сети', 'error');
     btn.textContent = 'Записаться';
     btn.disabled = false;
   }
@@ -362,6 +396,60 @@ document.addEventListener('click', (e) => {
     closeEventDetail();
   }
 });
+
+// ===== Unregister from Event =====
+async function unregisterEvent(eventId) {
+  const token = localStorage.getItem('access_token');
+  if (!token) return;
+
+  try {
+    const response = await fetch(`${API_BASE}/events/${eventId}/register`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+
+    if (response.ok) {
+      showToast('Вы отписались от события', 'success');
+      // Перезагружаем событие для обновления состояния
+      showEventDetail(eventId);
+    } else {
+      const data = await response.json();
+      showToast(data.detail || 'Ошибка отписки', 'error');
+    }
+  } catch (err) {
+    showToast('Ошибка сети', 'error');
+  }
+}
+
+// ===== Participants =====
+function renderParticipants(participants) {
+  const section = document.getElementById('participantsSection');
+  const list = document.getElementById('participantsList');
+  
+  if (!participants || participants.length === 0) {
+    section.style.display = 'none';
+    return;
+  }
+
+  section.style.display = 'block';
+  list.innerHTML = participants.map(p => `
+    <div class="participant-card">
+      <div class="participant-avatar">
+        ${p.avatar 
+          ? `<img src="/static/avatars/${p.avatar}" alt="Avatar">`
+          : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z"/></svg>`
+        }
+      </div>
+      <div class="participant-info">
+        <div class="participant-email">${escapeHtml(p.email)}</div>
+        ${p.dogs && p.dogs.length > 0 
+          ? `<div class="participant-dogs">${p.dogs.map(d => `🐕 ${escapeHtml(d.name)} (${escapeHtml(d.breed)})`).join(', ')}</div>`
+          : '<div class="participant-no-dogs">Нет добавленных собак</div>'
+        }
+      </div>
+    </div>
+  `).join('');
+}
 
 function escapeHtml(text) {
   const div = document.createElement('div');
@@ -492,6 +580,274 @@ function clearNotifications() {
   localStorage.removeItem('notifications');
   loadNotifications();
   closeNotifications();
+}
+
+// ===== Avatar Upload =====
+async function uploadAvatar(input) {
+  const file = input.files[0];
+  if (!file) return;
+
+  const token = localStorage.getItem('access_token');
+  if (!token) return;
+
+  const formData = new FormData();
+  formData.append('file', file);
+
+  try {
+    const response = await fetch(`${API_BASE}/users/me/avatar`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}` },
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const data = await response.json();
+      showToast(data.detail || 'Ошибка загрузки аватара', 'error');
+      return;
+    }
+
+    const user = await response.json();
+    const avatarEl = document.getElementById('profileAvatar');
+    avatarEl.innerHTML = `<img src="/static/avatars/${user.avatar}?t=${Date.now()}" alt="Avatar" style="width: 100%; height: 100%; object-fit: cover; border-radius: 50%;">`;
+    showToast('Аватар обновлён', 'success');
+  } catch (err) {
+    showToast('Ошибка сети', 'error');
+  }
+
+  input.value = '';
+}
+
+// ===== Profile Edit =====
+function openEditProfileModal() {
+  const modal = document.getElementById('editProfileModal');
+  const emailInput = document.getElementById('editEmail');
+  emailInput.value = document.getElementById('profileEmail').textContent;
+  modal.classList.remove('hidden');
+}
+
+function closeEditProfileModal() {
+  const modal = document.getElementById('editProfileModal');
+  modal.classList.add('hidden');
+  document.getElementById('profileMessage').textContent = '';
+}
+
+async function saveProfile(e) {
+  e.preventDefault();
+  const token = localStorage.getItem('access_token');
+  if (!token) return;
+
+  const email = document.getElementById('editEmail').value;
+  const msgEl = document.getElementById('profileMessage');
+  const btn = document.getElementById('saveProfileBtn');
+
+  btn.textContent = 'Сохранение...';
+  btn.disabled = true;
+  msgEl.textContent = '';
+
+  try {
+    const response = await fetch(`${API_BASE}/users/me`, {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ email }),
+    });
+
+    if (!response.ok) {
+      const data = await response.json();
+      msgEl.textContent = data.detail || 'Ошибка сохранения';
+      msgEl.className = 'message error';
+      btn.textContent = 'Сохранить';
+      btn.disabled = false;
+      return;
+    }
+
+    const user = await response.json();
+    document.getElementById('profileEmail').textContent = user.email;
+    closeEditProfileModal();
+    showToast('Профиль обновлён', 'success');
+  } catch (err) {
+    msgEl.textContent = 'Ошибка сети';
+    msgEl.className = 'message error';
+    btn.textContent = 'Сохранить';
+    btn.disabled = false;
+  }
+}
+
+// ===== Dogs =====
+async function loadDogs() {
+  const token = localStorage.getItem('access_token');
+  if (!token) return;
+
+  const section = document.getElementById('dogsSection');
+  const list = document.getElementById('dogsList');
+  const loading = document.getElementById('dogsLoading');
+
+  try {
+    const response = await fetch(`${API_BASE}/users/me/dogs`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+
+    if (!response.ok) {
+      section.classList.add('hidden');
+      return;
+    }
+
+    const dogs = await response.json();
+    section.classList.remove('hidden');
+
+    if (dogs.length === 0) {
+      list.innerHTML = '<p class="empty-text">У вас пока нет собак. Добавьте первую!</p>';
+      return;
+    }
+
+    list.innerHTML = dogs.map(dog => `
+      <div class="dog-card">
+        <div class="dog-card-info">
+          <h3 class="dog-card-name">${escapeHtml(dog.name)}</h3>
+          <p class="dog-card-breed">${escapeHtml(dog.breed)}</p>
+          <p class="dog-card-age">Возраст: ${dog.age} ${getAgeWord(dog.age)}</p>
+        </div>
+        <div class="dog-card-actions">
+          <button class="btn-edit-dog" onclick="openEditDogModal(${dog.id}, '${escapeHtml(dog.name)}', '${escapeHtml(dog.breed)}', ${dog.age})">✏️</button>
+          <button class="btn-delete-dog" onclick="deleteDog(${dog.id})">🗑️</button>
+        </div>
+      </div>
+    `).join('');
+  } catch (err) {
+    console.error('Ошибка загрузки собак:', err);
+    section.classList.add('hidden');
+  }
+}
+
+function getAgeWord(age) {
+  if (age === 1) return 'год';
+  if (age >= 2 && age <= 4) return 'года';
+  return 'лет';
+}
+
+function openAddDogModal() {
+  document.getElementById('dogModalTitle').textContent = 'Добавить собаку';
+  document.getElementById('dogId').value = '';
+  document.getElementById('dogName').value = '';
+  document.getElementById('dogBreed').value = '';
+  document.getElementById('dogAge').value = '';
+  document.getElementById('dogMessage').textContent = '';
+  document.getElementById('dogModal').classList.remove('hidden');
+}
+
+function closeDogModal() {
+  document.getElementById('dogModal').classList.add('hidden');
+  document.getElementById('dogMessage').textContent = '';
+}
+
+function openEditDogModal(id, name, breed, age) {
+  document.getElementById('dogModalTitle').textContent = 'Редактировать собаку';
+  document.getElementById('dogId').value = id;
+  document.getElementById('dogName').value = name;
+  document.getElementById('dogBreed').value = breed;
+  document.getElementById('dogAge').value = age;
+  document.getElementById('dogMessage').textContent = '';
+  document.getElementById('dogModal').classList.remove('hidden');
+}
+
+async function saveDog(e) {
+  e.preventDefault();
+  const token = localStorage.getItem('access_token');
+  if (!token) return;
+
+  const dogId = document.getElementById('dogId').value;
+  const name = document.getElementById('dogName').value;
+  const breed = document.getElementById('dogBreed').value;
+  const age = parseInt(document.getElementById('dogAge').value);
+  const msgEl = document.getElementById('dogMessage');
+  const btn = document.getElementById('saveDogBtn');
+
+  btn.textContent = 'Сохранение...';
+  btn.disabled = true;
+  msgEl.textContent = '';
+
+  try {
+    const isEdit = !!dogId;
+    const url = isEdit ? `${API_BASE}/users/me/dogs/${dogId}` : `${API_BASE}/users/me/dogs`;
+    const method = isEdit ? 'PUT' : 'POST';
+
+    const response = await fetch(url, {
+      method,
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ name, breed, age }),
+    });
+
+    if (!response.ok) {
+      const data = await response.json();
+      msgEl.textContent = data.detail || 'Ошибка сохранения';
+      msgEl.className = 'message error';
+      btn.textContent = 'Сохранить';
+      btn.disabled = false;
+      return;
+    }
+
+    btn.textContent = 'Сохранить';
+    btn.disabled = false;
+    closeDogModal();
+    loadDogs();
+  } catch (err) {
+    msgEl.textContent = 'Ошибка сети';
+    msgEl.className = 'message error';
+    btn.textContent = 'Сохранить';
+    btn.disabled = false;
+  }
+}
+
+async function deleteDog(dogId) {
+  if (!confirm('Удалить собаку из профиля?')) return;
+
+  const token = localStorage.getItem('access_token');
+  if (!token) return;
+
+  try {
+    const response = await fetch(`${API_BASE}/users/me/dogs/${dogId}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+
+    if (!response.ok) {
+      const data = await response.json();
+      showToast(data.detail || 'Ошибка удаления', 'error');
+      return;
+    }
+
+    loadDogs();
+  } catch (err) {
+    showToast('Ошибка сети', 'error');
+  }
+}
+
+// ===== Toast Notifications =====
+function showToast(message, type = 'info') {
+  // Удаляем старые тосты
+  const oldToasts = document.querySelectorAll('.toast-notification');
+  oldToasts.forEach(t => t.remove());
+
+  const toast = document.createElement('div');
+  toast.className = `toast-notification toast-${type}`;
+  toast.textContent = message;
+  document.body.appendChild(toast);
+
+  // Анимация появления
+  requestAnimationFrame(() => {
+    toast.classList.add('show');
+  });
+
+  // Автоудаление через 3 секунды
+  setTimeout(() => {
+    toast.classList.remove('show');
+    setTimeout(() => toast.remove(), 300);
+  }, 3000);
 }
 
 // ===== Init =====
