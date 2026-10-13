@@ -1,15 +1,37 @@
-import os
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
 
+from ..config import settings
 from ..database import get_db
 from ..deps import get_current_user
-from ..models import User, Dog
-from ..schemas import UserRead, UserUpdate, DogCreate, DogUpdate, DogRead
+from ..models import Dog, User
+from ..schemas import DogCreate, DogRead, DogUpdate, UserRead, UserUpdate
 
 router = APIRouter(prefix="/users", tags=["Users"])
+
+# Разрешаем только эти форматы. Расширение НЕ берём из имени файла, которое
+# присылает клиент: там может быть .html/.svg (исполняемый в браузере код)
+# или "..." с обходом каталога. Формат определяем по содержимому файла.
+_AVATAR_SIGNATURES = (
+    ("jpg", lambda data: data.startswith(b"\xff\xd8\xff")),
+    ("png", lambda data: data.startswith(b"\x89PNG\r\n\x1a\n")),
+    ("webp", lambda data: data.startswith(b"RIFF") and data[8:12] == b"WEBP"),
+)
+AVATAR_CONTENT_TYPES = {
+    "jpg": "image/jpeg",
+    "png": "image/png",
+    "webp": "image/webp",
+}
+
+
+def _detect_avatar_extension(data: bytes) -> str | None:
+    """Определяет формат картинки по «магическим» байтам содержимого."""
+    for extension, matches in _AVATAR_SIGNATURES:
+        if matches(data):
+            return extension
+    return None
 
 
 @router.get("/me", response_model=UserRead)
@@ -45,38 +67,48 @@ async def upload_avatar(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Загрузка аватара пользователя."""
-    # Проверка типа файла
-    allowed_types = ["image/jpeg", "image/png", "image/webp"]
-    if file.content_type not in allowed_types:
+    """Загрузка аватара пользователя.
+
+    Что проверяем:
+      * реальный формат по содержимому (не по доверчивому content_type);
+      * размер — читаем не больше лимита + 1 байт, чтобы 5 ГБ не осели в RAM;
+      * имя файла генерируем сами, поэтому обход каталога невозможен.
+    """
+    max_bytes = settings.MAX_AVATAR_BYTES
+    contents = await file.read(max_bytes + 1)
+    if len(contents) > max_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Максимальный размер файла: {max_bytes // (1024 * 1024)}MB",
+        )
+
+    extension = _detect_avatar_extension(contents)
+    if extension is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Допустимые форматы: JPEG, PNG, WebP",
         )
 
-    # Проверка размера (5MB)
-    contents = await file.read()
-    if len(contents) > 5 * 1024 * 1024:
+    # Имя целиком наше: uuid4 + безопасное расширение из белого списка.
+    filename = f"{uuid.uuid4().hex}.{extension}"
+    avatar_dir = settings.avatar_dir
+    try:
+        avatar_dir.mkdir(parents=True, exist_ok=True)
+        (avatar_dir / filename).write_bytes(contents)
+    except OSError:
+        # Диск переполнен / нет прав на каталог / путь недоступен — отдаём
+        # понятный 503, а не невнятный 500 из середины хендлера.
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Максимальный размер файла: 5MB",
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Хранилище для загрузок недоступно — проверьте путь UPLOAD_DIR",
         )
 
-    # Генерация уникального имени файла
-    ext = file.filename.split(".")[-1] if file.filename else "jpg"
-    filename = f"{uuid.uuid4()}.{ext}"
-    avatar_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "frontend", "avatars")
-    os.makedirs(avatar_path, exist_ok=True)
-
-    # Сохранение файла
-    with open(os.path.join(avatar_path, filename), "wb") as f:
-        f.write(contents)
-
-    # Удаление старого аватара
-    if current_user.avatar:
-        old_path = os.path.join(avatar_path, current_user.avatar)
-        if os.path.exists(old_path):
-            os.remove(old_path)
+    # Удаляем предыдущий аватар (basename отсекает любые попытки выйти из папки)
+    previous = current_user.avatar
+    if previous:
+        old_path = avatar_dir / previous.split("/")[-1].split("\\")[-1]
+        if old_path.parent.resolve() == avatar_dir.resolve() and old_path.is_file():
+            old_path.unlink(missing_ok=True)
 
     current_user.avatar = filename
     db.commit()
@@ -90,7 +122,12 @@ def get_my_dogs(
     current_user: User = Depends(get_current_user),
 ):
     """Получить список собак текущего пользователя."""
-    return db.query(Dog).filter(Dog.owner_id == current_user.id).order_by(Dog.created_at.desc()).all()
+    return (
+        db.query(Dog)
+        .filter(Dog.owner_id == current_user.id)
+        .order_by(Dog.created_at.desc())
+        .all()
+    )
 
 
 @router.post("/me/dogs", response_model=DogRead, status_code=status.HTTP_201_CREATED)

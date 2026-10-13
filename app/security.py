@@ -5,6 +5,12 @@ import jwt
 
 from .config import settings
 
+# bcrypt физически не умеет работать с паролем длиннее 72 байт:
+# старые версии молча обрезали, bcrypt>=5 бросает ValueError.
+# Поэтому ограничение проверяется на входе (см. schemas.UserCreate),
+# а здесь оно же используется как страховка.
+MAX_PASSWORD_BYTES = 72
+
 
 def hash_password(password: str) -> str:
     """Пароль → необратимый хеш для БД.
@@ -19,10 +25,15 @@ def hash_password(password: str) -> str:
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Хеш нельзя расшифровать. Проверка = хешируем введённый пароль
     с солью из сохранённого хеша (bcrypt сам её достанет) и сравниваем."""
-    return bcrypt.checkpw(
-        plain_password.encode("utf-8"),
-        hashed_password.encode("utf-8"),
-    )
+    try:
+        return bcrypt.checkpw(
+            plain_password.encode("utf-8"),
+            hashed_password.encode("utf-8"),
+        )
+    except ValueError:
+        # Пароль длиннее 72 байт или битый хеш в БД — это не «свой» пароль,
+        # а не повод отдавать 500 вместо 401.
+        return False
 
 
 def create_access_token(user_id: int) -> str:
@@ -39,3 +50,18 @@ def create_access_token(user_id: int) -> str:
         "exp": expire,        # момент протухания; jwt.decode сам отклонит просроченный
     }
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+
+
+def decode_access_token(token: str) -> int | None:
+    """Проверяет подпись и срок годности токена.
+
+    Возвращает id пользователя или None, если токен невалиден/просрочен/битый.
+    Единая точка расшифровки: и HTTP-запросы, и страницы используют её.
+    """
+    try:
+        payload = jwt.decode(
+            token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM]
+        )
+        return int(payload["sub"])
+    except (jwt.PyJWTError, KeyError, TypeError, ValueError):
+        return None

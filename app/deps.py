@@ -1,4 +1,3 @@
-import jwt
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
@@ -6,59 +5,91 @@ from sqlalchemy.orm import Session
 from .config import settings
 from .database import get_db
 from .models import User
+from .security import decode_access_token
 
-# OAuth2PasswordBearer: (1) рисует кнопку Authorize в /docs,
-# (2) вытаскивает из заголовка "Authorization: Bearer <токен>" сам токен.
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
+# OAuth2PasswordBearer делает две вещи:
+#   1) рисует кнопку Authorize в /docs и описывает security-схему в OpenAPI;
+#   2) вытаскивает токен из заголовка "Authorization: Bearer <токен>".
+# auto_error=False — не падать сразу, а дать нам решить, что вернуть клиенту.
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login", auto_error=False)
+
+
+def extract_token(request: Request, bearer_token: str | None = Depends(oauth2_scheme)) -> str | None:
+    """Ищет токен в двух источниках (в порядке приоритета):
+    1. HttpOnly-cookie — так работают страницы и браузерный UI;
+    2. заголовок "Authorization: Bearer ..." — для API-клиентов и /docs.
+
+    ВАЖНО: вариант "?token=..." больше НЕ поддерживается. Он был удобен для
+    навигации, но токен утекал в логи сервера, историю браузера и Referer.
+    Теперь cookie браузер отправляет сам, и токен в URL не нужен.
+    """
+    return request.cookies.get(settings.COOKIE_NAME) or bearer_token
 
 
 def get_current_user(
-    request: Request,
     db: Session = Depends(get_db),
+    token: str | None = Depends(extract_token),
 ) -> User:
     """Сердце авторизации. Любой эндпоинт с параметром
     current_user: User = Depends(get_current_user) становится защищённым:
-    без валидного токена выполнение до него не дойдёт (будет 401).
-
-    Токен читается из двух источников (в порядке приоритета):
-    1. Заголовок "Authorization: Bearer <token>" — стандартный способ
-    2. Query parameter "?token=<token>" — для навигации по страницам,
-       когда токен хранится в localStorage и не передаётся автоматически
-
-    ВАЖНО: Query parameter менее безопасен — токен виден в URL и логах.
-    Для продакшена используй только Authorization header или cookies.
-    """
+    без валидного токена выполнение до него не дойдёт (будет 401)."""
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Не удалось проверить учётные данные",
         headers={"WWW-Authenticate": "Bearer"},
     )
 
-    # 1. Пытаемся получить токен из Authorization header (стандартный способ)
-    auth_header = request.headers.get("Authorization")
-    token = None
-    if auth_header and auth_header.startswith("Bearer "):
-        token = auth_header[7:]  # убираем префикс "Bearer "
-
-    # 2. Если в заголовке нет — пробуем query parameter ?token=...
-    #    Это нужно для навигации по страницам (dashboard, admin),
-    #    когда токен хранится в localStorage и не передаётся автоматически
-    if not token:
-        token = request.query_params.get("token")
-
-    # 3. Если токен всё ещё нет — возвращаем 401
     if not token:
         raise credentials_exception
 
-    try:
-        # decode проверяет и подпись, и срок годности — любая проблема = исключение
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
-        user_id = int(payload.get("sub"))
-    except (jwt.PyJWTError, TypeError, ValueError):
+    # decode проверяет и подпись, и срок годности — любая проблема даёт None
+    user_id = decode_access_token(token)
+    if user_id is None:
         raise credentials_exception
 
     user = db.get(User, user_id)  # быстрый поиск по первичному ключу
     if user is None:
         # Токен валиден, но пользователя удалили из БД — пускать нельзя
         raise credentials_exception
+    return user
+
+
+def require_admin(current_user: User = Depends(get_current_user)) -> User:
+    """Зависимость для админских эндпоинтов: пускает только role == 'admin'."""
+    if current_user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Доступ только для администраторов",
+        )
+    return current_user
+
+
+def _page_redirect(location: str) -> HTTPException:
+    """303 See Other — браузер уйдёт на location методом GET."""
+    return HTTPException(
+        status_code=status.HTTP_303_SEE_OTHER,
+        detail="Требуется вход",
+        headers={"Location": location},
+    )
+
+
+def require_page_user(
+    db: Session = Depends(get_db),
+    token: str | None = Depends(extract_token),
+) -> User:
+    """Для HTML-страниц: вместо JSON-401 отправляем браузер на страницу входа.
+    Так закрыты /dashboard и /admin: HTML не отдаётся «просто так»."""
+    if not token:
+        raise _page_redirect("/")
+    user_id = decode_access_token(token)
+    user = db.get(User, user_id) if user_id is not None else None
+    if user is None:
+        raise _page_redirect("/")
+    return user
+
+
+def require_admin_page_user(user: User = Depends(require_page_user)) -> User:
+    """Для HTML-страницы админки: обычного пользователя уводим в личный кабинет."""
+    if user.role != "admin":
+        raise _page_redirect("/dashboard")
     return user

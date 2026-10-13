@@ -1,14 +1,34 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from ..config import settings
 from ..database import get_db
-from ..deps import get_current_user
+from ..deps import require_admin
 from ..models import User
-from ..schemas import RoleUpdate, UserCreate, UserRead, Token
-from ..security import hash_password, verify_password, create_access_token
+from ..schemas import RoleUpdate, Token, UserCreate, UserRead
+from ..security import create_access_token, hash_password, verify_password
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
+
+
+def _set_auth_cookie(response: Response, token: str) -> None:
+    """Кладёт JWT в HttpOnly-cookie.
+
+    HttpOnly — JS не может прочитать токен из cookie;
+    SameSite — cookie не уходит на сторонние сайты (защита от CSRF);
+    Secure — только по HTTPS (включается через COOKIE_SECURE на проде).
+    """
+    response.set_cookie(
+        key=settings.COOKIE_NAME,
+        value=token,
+        max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        httponly=True,
+        secure=settings.COOKIE_SECURE,
+        samesite=settings.COOKIE_SAMESITE,
+        path="/",
+    )
 
 
 @router.post("/register", response_model=UserRead, status_code=status.HTTP_201_CREATED)
@@ -28,15 +48,29 @@ def register(user_data: UserCreate, db: Session = Depends(get_db)):
         hashed_password=hash_password(user_data.password),  # сырой пароль в БД не попадёт
     )
     db.add(user)      # объект в очередь на INSERT (запроса пока не было)
-    db.commit()       # выполняем INSERT и фиксируем транзакцию
+    try:
+        db.commit()   # выполняем INSERT и фиксируем транзакцию
+    except IntegrityError:
+        # Между проверкой выше и INSERT другой запрос успел создать такого же
+        # пользователя: уникальный индекс в БД — последняя линия обороны.
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Пользователь с таким email уже существует",
+        )
     db.refresh(user)  # подтягиваем поля, сгенерированные БД: id и created_at
     return user       # FastAPI отдаст ответ по схеме UserRead — без пароля
 
 
 @router.post("/login", response_model=Token)
-def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+def login(
+    response: Response,
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    db: Session = Depends(get_db),
+):
     """Логин по стандарту OAuth2: тело — form-urlencoded (не JSON!),
-    поле называется username — в него пользователь пишет свой email."""
+    поле называется username — в него пользователь пишет свой email.
+    Токен возвращается в теле (для API-клиентов) и в HttpOnly-cookie (для UI)."""
     user = db.query(User).filter(User.email == form_data.username).first()
 
     # Одна ошибка и на неверный email, и на неверный пароль — иначе злоумышленник
@@ -48,18 +82,15 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    return Token(access_token=create_access_token(user.id))
+    token = create_access_token(user.id)
+    _set_auth_cookie(response, token)
+    return Token(access_token=token)
 
 
-@router.post("/make-admin")
-def make_admin(email: str, db: Session = Depends(get_db)):
-    """Делает пользователя администратором. Использовать один раз для первого админа."""
-    user = db.query(User).filter(User.email == email).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="Пользователь не найден")
-    user.role = "admin"
-    db.commit()
-    return {"message": f"Пользователь {email} теперь администратор"}
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+def logout(response: Response):
+    """Выход: гасим cookie. Токен в теле клиент хранить не должен."""
+    response.delete_cookie(key=settings.COOKIE_NAME, path="/")
 
 
 @router.post("/users/{user_id}/role", response_model=UserRead)
@@ -67,17 +98,26 @@ def update_user_role(
     user_id: int,
     data: RoleUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    admin: User = Depends(require_admin),
 ):
-    """Назначение/смена роли пользователю. Только админ."""
-    if current_user.role != "admin":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Только администратор может менять роли",
-        )
-    user = db.query(User).filter(User.id == data.user_id).first()
+    """Назначение/смена роли пользователю. Только админ.
+
+    Пользователь берётся ТОЛЬКО из пути запроса: раньше в теле был свой user_id,
+    который побеждал путь — роль можно было сменить не тому, кого указали в URL.
+    """
+    user = db.get(User, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="Пользователь не найден")
+
+    # Нельзя оставить систему без администраторов
+    if user.role == "admin" and data.role != "admin":
+        admins_count = db.query(User).filter(User.role == "admin").count()
+        if admins_count <= 1:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Нельзя снять роль с последнего администратора",
+            )
+
     user.role = data.role
     db.commit()
     db.refresh(user)
