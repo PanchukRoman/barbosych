@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Личный кабинет</title>
-  <link rel="stylesheet" href="/static/style.css?v=12">
+  <link rel="stylesheet" href="/static/style.css?v=15">
 </head>
 <body>
   <!-- Hamburger Button (mobile) -->
@@ -199,6 +199,20 @@
     </div>
   </div>
 
-  <script src="/static/dashboard.js?v=10"></script>
+  <!-- Course Detail Modal -->
+  <div class="article-modal-overlay hidden" id="courseModal">
+    <div class="article-modal">
+      <button class="article-modal-close" onclick="closeCourseDetail()">✕</button>
+      <div class="article-modal-content">
+        <h1 class="article-modal-title" id="courseModalTitle">Загрузка...</h1>
+        <div class="article-modal-meta">
+          <span class="article-modal-date" id="courseModalProgress"></span>
+        </div>
+        <div class="article-modal-body" id="courseModalBody"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/dashboard.js?v=14"></script>
 </body>
 </html>

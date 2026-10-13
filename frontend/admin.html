@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Панель администратора</title>
-  <link rel="stylesheet" href="/static/style.css?v=7">
+  <link rel="stylesheet" href="/static/style.css?v=15">
 </head>
 <body>
   <!-- Hamburger Button (mobile) -->
@@ -35,7 +35,7 @@
   <header class="admin-header">
     <div class="header-content">
       <h1>Панель администратора</h1>
-      <p class="admin-subtitle">Управление статьями и событиями</p>
+      <p class="admin-subtitle">Управление статьями, событиями и курсом дрессировки</p>
     </div>
   </header>
 
@@ -48,6 +48,9 @@
       </button>
       <button class="admin-tab" data-tab="events" onclick="switchAdminTab('events')">
         События
+      </button>
+      <button class="admin-tab" data-tab="course" onclick="switchAdminTab('course')">
+        Курс дрессировки
       </button>
     </div>
 
@@ -81,11 +84,7 @@
       </div>
 
       <!-- Articles List -->
-      <div id="articlesList" class="admin-list">
-        <div class="loading" id="articlesLoading">
-          <div class="spinner"></div>
-        </div>
-      </div>
+      <div id="articlesList" class="admin-list"></div>
     </div>
 
     <!-- Events Section -->
@@ -128,14 +127,121 @@
       </div>
 
       <!-- Events List -->
-      <div id="eventsList" class="admin-list">
-        <div class="loading" id="eventsLoading">
-          <div class="spinner"></div>
-        </div>
+      <div id="eventsList" class="admin-list"></div>
+    </div>
+    <!-- Course Section -->
+    <div id="courseSection" class="admin-section hidden">
+      <div class="section-header">
+        <h2>Курс дрессировки</h2>
+        <button class="btn-primary" onclick="showCourseForm()">+ Новый курс</button>
       </div>
+
+      <!-- Course Form (hidden by default) -->
+      <div id="courseForm" class="admin-form hidden">
+        <h3 id="courseFormTitle">Новый курс</h3>
+        <div class="form-group">
+          <label for="courseTitle">Название курса</label>
+          <input type="text" id="courseTitle" placeholder="Например: Базовый курс дрессировки" maxlength="255">
+        </div>
+        <div class="form-group">
+          <label for="courseDescription">Описание</label>
+          <textarea id="courseDescription" placeholder="О чём этот курс" rows="3" maxlength="2000"></textarea>
+        </div>
+        <div class="form-actions">
+          <button class="btn-primary" onclick="saveCourse()">Сохранить курс</button>
+          <button class="btn-secondary" onclick="hideCourseForm()">Отмена</button>
+        </div>
+        <div class="message" id="courseMessage"></div>
+      </div>
+
+      <p class="admin-hint">Каждый курс состоит из секций (прогулок). Внутри секции — комплекс упражнений.</p>
+
+      <!-- Courses List -->
+      <div id="coursesList" class="admin-list"></div>
     </div>
   </main>
 
-  <script src="/static/admin.js?v=6"></script>
+  <!-- Section Modal -->
+  <div class="modal-overlay hidden" id="sectionModal">
+    <div class="modal">
+      <button class="modal-close" onclick="closeSectionModal()">✕</button>
+      <h2 id="sectionModalTitle">Новая секция</h2>
+      <form id="sectionForm" onsubmit="saveSection(event)">
+        <input type="hidden" id="sectionId">
+        <input type="hidden" id="sectionCourseId">
+        <div class="form-group">
+          <label for="sectionTitle">Название прогулки</label>
+          <input type="text" id="sectionTitle" required maxlength="255" placeholder="Например: Прогулка 1 — послушание">
+        </div>
+        <div class="form-group">
+          <label for="sectionDescription">Что делаем на прогулке</label>
+          <textarea id="sectionDescription" rows="4" maxlength="2000" placeholder="План прогулки"></textarea>
+        </div>
+        <div class="form-group">
+          <label for="sectionOrder">Порядок (пусто — в конец)</label>
+          <input type="number" id="sectionOrder" min="0" placeholder="авто">
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="btn-primary" id="saveSectionBtn">Сохранить</button>
+          <button type="button" class="btn-secondary" onclick="closeSectionModal()">Отмена</button>
+        </div>
+        <div class="message" id="sectionMessage"></div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Enroll Modal (приглашение на курс) -->
+  <div class="modal-overlay hidden" id="enrollModal">
+    <div class="modal">
+      <button class="modal-close" onclick="closeEnrollModal()">✕</button>
+      <h2 id="enrollModalTitle">Пригласить на курс</h2>
+      <p class="admin-hint">Отметьте пользователей, которым нужно открыть доступ к курсу. Снятая галочка отзывает доступ.</p>
+      <div id="enrollList" class="enroll-list">
+        <div class="loading"><div class="spinner"></div></div>
+      </div>
+      <div class="message" id="enrollMessage"></div>
+    </div>
+  </div>
+
+  <!-- Exercise Modal -->
+  <div class="modal-overlay hidden" id="exerciseModal">
+    <div class="modal">
+      <button class="modal-close" onclick="closeExerciseModal()">✕</button>
+      <h2 id="exerciseModalTitle">Новое упражнение</h2>
+      <form id="exerciseForm" onsubmit="saveExercise(event)">
+        <input type="hidden" id="exerciseId">
+        <input type="hidden" id="exerciseSectionId">
+        <div class="form-group">
+          <label for="exerciseTitle">Название упражнения</label>
+          <input type="text" id="exerciseTitle" required maxlength="255" placeholder="Например: Команда «Сидеть»">
+        </div>
+        <div class="form-group">
+          <label for="exerciseDescription">Описание / как выполнять</label>
+          <textarea id="exerciseDescription" rows="3" maxlength="2000" placeholder="Пошагово, что делает владелец и собака"></textarea>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="exerciseRepetitions">Повторения</label>
+            <input type="text" id="exerciseRepetitions" maxlength="100" placeholder="Например: 3 подхода по 5 раз">
+          </div>
+          <div class="form-group">
+            <label for="exerciseDuration">Длительность, мин</label>
+            <input type="number" id="exerciseDuration" min="0" max="600" placeholder="0">
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="exerciseOrder">Порядок (пусто — в конец)</label>
+          <input type="number" id="exerciseOrder" min="0" placeholder="авто">
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="btn-primary" id="saveExerciseBtn">Сохранить</button>
+          <button type="button" class="btn-secondary" onclick="closeExerciseModal()">Отмена</button>
+        </div>
+        <div class="message" id="exerciseMessage"></div>
+      </form>
+    </div>
+  </div>
+
+  <script src="/static/admin.js?v=10"></script>
 </body>
 </html>

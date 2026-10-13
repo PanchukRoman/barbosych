@@ -48,9 +48,14 @@ document.addEventListener('keydown', (e) => {
 });
 
 // ===== Logout =====
-logoutBtn.addEventListener('click', (e) => {
+logoutBtn.addEventListener('click', async (e) => {
   e.preventDefault();
-  localStorage.removeItem('access_token');
+  try {
+    // HttpOnly-cookie из JS не удалить — просим сервер её погасить
+    await fetch(`${API_BASE}/auth/logout`, { method: 'POST', credentials: 'include' });
+  } catch (err) {
+    console.error('Logout error:', err);
+  }
   window.location.href = '/';
 });
 
@@ -58,29 +63,19 @@ logoutBtn.addEventListener('click', (e) => {
 const API_BASE = '';
 
 async function loadProfile() {
-  const token = localStorage.getItem('access_token');
-
-  if (!token) {
-    window.location.href = '/';
-    return;
-  }
-
   const loadingEl = document.getElementById('loading');
   const profileCard = document.getElementById('profileCard');
   const errorEl = document.getElementById('errorMessage');
 
   try {
+    // credentials: 'include' — браузер сам приложит HttpOnly-cookie с токеном
     const response = await fetch(`${API_BASE}/users/me`, {
       method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
+      credentials: 'include',
     });
 
     if (!response.ok) {
       if (response.status === 401) {
-        localStorage.removeItem('access_token');
         window.location.href = '/';
         return;
       }
@@ -97,7 +92,7 @@ async function loadProfile() {
     // Аватар
     const avatarEl = document.getElementById('profileAvatar');
     if (user.avatar) {
-      avatarEl.innerHTML = `<img src="/static/avatars/${user.avatar}" alt="Avatar" style="width: 100%; height: 100%; object-fit: cover; border-radius: 50%;">`;
+      avatarEl.innerHTML = `<img src="/uploads/avatars/${user.avatar}" alt="Avatar" style="width: 100%; height: 100%; object-fit: cover; border-radius: 50%;">`;
     } else {
       avatarEl.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z"/></svg>`;
     }
@@ -130,14 +125,9 @@ function formatDate(dateStr) {
 
 // ===== Load Articles & Events =====
 async function loadContent(role) {
-  const token = localStorage.getItem('access_token');
-  if (!token) return;
-
   try {
     // Загружаем статьи
-    const articlesResp = await fetch(`${API_BASE}/articles`, {
-      headers: { 'Authorization': `Bearer ${token}` },
-    });
+    const articlesResp = await fetch(`${API_BASE}/articles`, { credentials: 'include' });
 
     if (articlesResp.ok) {
       const articles = await articlesResp.json();
@@ -145,31 +135,26 @@ async function loadContent(role) {
     }
 
     // Загружаем события
-    const eventsResp = await fetch(`${API_BASE}/events`, {
-      headers: { 'Authorization': `Bearer ${token}` },
-    });
+    const eventsResp = await fetch(`${API_BASE}/events`, { credentials: 'include' });
 
     if (eventsResp.ok) {
       const events = await eventsResp.json();
       renderEvents(events);
     }
 
-    // Показываем/скрываем ссылку на админ-панель
+    // Загружаем курс дрессировки
+    const coursesResp = await fetch(`${API_BASE}/courses`, { credentials: 'include' });
+
+    if (coursesResp.ok) {
+      const courses = await coursesResp.json();
+      renderCourses(courses);
+    }
+
+    // Ссылку на админку показываем только администратору. Токен в URL не нужен:
+    // /admin читает сессию из cookie, которую браузер отправляет сам.
     const adminLink = document.getElementById('adminLink');
     if (adminLink) {
-      if (role === 'admin') {
-        adminLink.style.display = 'block';
-        // При клике передаём токен через query parameter
-        adminLink.addEventListener('click', (e) => {
-          e.preventDefault();
-          const token = localStorage.getItem('access_token');
-          if (token) {
-            window.location.href = '/admin?token=' + token;
-          }
-        });
-      } else {
-        adminLink.style.display = 'none';
-      }
+      adminLink.style.display = role === 'admin' ? 'block' : 'none';
     }
 
     if (role !== 'admin') {
@@ -239,16 +224,10 @@ function renderEvents(events) {
 }
 
 async function registerEvent(eventId, btn) {
-  const token = localStorage.getItem('access_token');
-  if (!token) return;
-
   try {
     const response = await fetch(`${API_BASE}/events/${eventId}/register`, {
       method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
+      credentials: 'include',
     });
 
     if (response.ok) {
@@ -257,7 +236,7 @@ async function registerEvent(eventId, btn) {
       btn.disabled = true;
     } else {
       const data = await response.json();
-      showToast(data.detail || 'Ошибка записи', 'error');
+      showToast(errorText(data, 'Ошибка записи'), 'error');
     }
   } catch (err) {
     showToast('Ошибка сети', 'error');
@@ -266,9 +245,6 @@ async function registerEvent(eventId, btn) {
 
 // ===== Event Detail Modal =====
 async function showEventDetail(eventId) {
-  const token = localStorage.getItem('access_token');
-  if (!token) return;
-
   const modal = document.getElementById('eventModal');
   const titleEl = document.getElementById('eventModalTitle');
   const dateEl = document.getElementById('eventModalDate');
@@ -291,7 +267,7 @@ async function showEventDetail(eventId) {
     const timeoutId = setTimeout(() => controller.abort(), 10000);
 
     const response = await fetch(`${API_BASE}/events/${eventId}`, {
-      headers: { 'Authorization': `Bearer ${token}` },
+      credentials: 'include',
       signal: controller.signal,
     });
 
@@ -358,10 +334,7 @@ async function registerEventFromModal(eventId) {
   try {
     const response = await fetch(`${API_BASE}/events/${eventId}/register`, {
       method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-        'Content-Type': 'application/json',
-      },
+      credentials: 'include',
     });
 
     if (response.ok) {
@@ -378,7 +351,7 @@ async function registerEventFromModal(eventId) {
       }
     } else {
       const data = await response.json();
-      showToast(data.detail || 'Ошибка записи', 'error');
+      showToast(errorText(data, 'Ошибка записи'), 'error');
       btn.textContent = 'Записаться';
       btn.disabled = false;
     }
@@ -399,13 +372,10 @@ document.addEventListener('click', (e) => {
 
 // ===== Unregister from Event =====
 async function unregisterEvent(eventId) {
-  const token = localStorage.getItem('access_token');
-  if (!token) return;
-
   try {
     const response = await fetch(`${API_BASE}/events/${eventId}/register`, {
       method: 'DELETE',
-      headers: { 'Authorization': `Bearer ${token}` },
+      credentials: 'include',
     });
 
     if (response.ok) {
@@ -414,7 +384,7 @@ async function unregisterEvent(eventId) {
       showEventDetail(eventId);
     } else {
       const data = await response.json();
-      showToast(data.detail || 'Ошибка отписки', 'error');
+      showToast(errorText(data, 'Ошибка отписки'), 'error');
     }
   } catch (err) {
     showToast('Ошибка сети', 'error');
@@ -436,7 +406,7 @@ function renderParticipants(participants) {
     <div class="participant-card">
       <div class="participant-avatar">
         ${p.avatar 
-          ? `<img src="/static/avatars/${p.avatar}" alt="Avatar">`
+          ? `<img src="/uploads/avatars/${p.avatar}" alt="Avatar">`
           : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z"/></svg>`
         }
       </div>
@@ -459,9 +429,6 @@ function escapeHtml(text) {
 
 // ===== Article Detail Modal =====
 async function showArticleDetail(articleId) {
-  const token = localStorage.getItem('access_token');
-  if (!token) return;
-
   const modal = document.getElementById('articleModal');
   const titleEl = document.getElementById('articleModalTitle');
   const dateEl = document.getElementById('articleModalDate');
@@ -479,7 +446,7 @@ async function showArticleDetail(articleId) {
     const timeoutId = setTimeout(() => controller.abort(), 10000);
 
     const response = await fetch(`${API_BASE}/articles/${articleId}`, {
-      headers: { 'Authorization': `Bearer ${token}` },
+      credentials: 'include',
       signal: controller.signal,
     });
 
@@ -524,15 +491,13 @@ document.addEventListener('click', (e) => {
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     closeArticleDetail();
+    closeCourseDetail();
     closeNotifications();
   }
 });
 
 // ===== Notifications =====
 function loadNotifications() {
-  const token = localStorage.getItem('access_token');
-  if (!token) return;
-
   // Получаем уведомления из localStorage
   const notifications = JSON.parse(localStorage.getItem('notifications') || '[]');
 
@@ -587,28 +552,25 @@ async function uploadAvatar(input) {
   const file = input.files[0];
   if (!file) return;
 
-  const token = localStorage.getItem('access_token');
-  if (!token) return;
-
   const formData = new FormData();
   formData.append('file', file);
 
   try {
     const response = await fetch(`${API_BASE}/users/me/avatar`, {
       method: 'POST',
-      headers: { 'Authorization': `Bearer ${token}` },
+      credentials: 'include',
       body: formData,
     });
 
     if (!response.ok) {
       const data = await response.json();
-      showToast(data.detail || 'Ошибка загрузки аватара', 'error');
+      showToast(errorText(data, 'Ошибка загрузки аватара'), 'error');
       return;
     }
 
     const user = await response.json();
     const avatarEl = document.getElementById('profileAvatar');
-    avatarEl.innerHTML = `<img src="/static/avatars/${user.avatar}?t=${Date.now()}" alt="Avatar" style="width: 100%; height: 100%; object-fit: cover; border-radius: 50%;">`;
+    avatarEl.innerHTML = `<img src="/uploads/avatars/${user.avatar}?t=${Date.now()}" alt="Avatar" style="width: 100%; height: 100%; object-fit: cover; border-radius: 50%;">`;
     showToast('Аватар обновлён', 'success');
   } catch (err) {
     showToast('Ошибка сети', 'error');
@@ -633,8 +595,6 @@ function closeEditProfileModal() {
 
 async function saveProfile(e) {
   e.preventDefault();
-  const token = localStorage.getItem('access_token');
-  if (!token) return;
 
   const email = document.getElementById('editEmail').value;
   const msgEl = document.getElementById('profileMessage');
@@ -647,16 +607,14 @@ async function saveProfile(e) {
   try {
     const response = await fetch(`${API_BASE}/users/me`, {
       method: 'PUT',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email }),
     });
 
     if (!response.ok) {
       const data = await response.json();
-      msgEl.textContent = data.detail || 'Ошибка сохранения';
+      msgEl.textContent = errorText(data, 'Ошибка сохранения');
       msgEl.className = 'message error';
       btn.textContent = 'Сохранить';
       btn.disabled = false;
@@ -676,18 +634,17 @@ async function saveProfile(e) {
 }
 
 // ===== Dogs =====
-async function loadDogs() {
-  const token = localStorage.getItem('access_token');
-  if (!token) return;
+// Данные собак храним в Map, а в onclick передаём только id: данные, вклеенные
+// в атрибут строкой, ломаются на кавычках в кличке и открывают инъекцию JS.
+let dogsById = new Map();
 
+async function loadDogs() {
   const section = document.getElementById('dogsSection');
   const list = document.getElementById('dogsList');
   const loading = document.getElementById('dogsLoading');
 
   try {
-    const response = await fetch(`${API_BASE}/users/me/dogs`, {
-      headers: { 'Authorization': `Bearer ${token}` },
-    });
+    const response = await fetch(`${API_BASE}/users/me/dogs`, { credentials: 'include' });
 
     if (!response.ok) {
       section.classList.add('hidden');
@@ -702,6 +659,8 @@ async function loadDogs() {
       return;
     }
 
+    dogsById = new Map(dogs.map(dog => [dog.id, dog]));
+
     list.innerHTML = dogs.map(dog => `
       <div class="dog-card">
         <div class="dog-card-info">
@@ -710,7 +669,7 @@ async function loadDogs() {
           <p class="dog-card-age">Возраст: ${dog.age} ${getAgeWord(dog.age)}</p>
         </div>
         <div class="dog-card-actions">
-          <button class="btn-edit-dog" onclick="openEditDogModal(${dog.id}, '${escapeHtml(dog.name)}', '${escapeHtml(dog.breed)}', ${dog.age})">✏️</button>
+          <button class="btn-edit-dog" onclick="openEditDogModal(${dog.id})">✏️</button>
           <button class="btn-delete-dog" onclick="deleteDog(${dog.id})">🗑️</button>
         </div>
       </div>
@@ -742,20 +701,21 @@ function closeDogModal() {
   document.getElementById('dogMessage').textContent = '';
 }
 
-function openEditDogModal(id, name, breed, age) {
+function openEditDogModal(id) {
+  const dog = dogsById.get(id);
+  if (!dog) return;
+
   document.getElementById('dogModalTitle').textContent = 'Редактировать собаку';
-  document.getElementById('dogId').value = id;
-  document.getElementById('dogName').value = name;
-  document.getElementById('dogBreed').value = breed;
-  document.getElementById('dogAge').value = age;
+  document.getElementById('dogId').value = dog.id;
+  document.getElementById('dogName').value = dog.name;
+  document.getElementById('dogBreed').value = dog.breed;
+  document.getElementById('dogAge').value = dog.age;
   document.getElementById('dogMessage').textContent = '';
   document.getElementById('dogModal').classList.remove('hidden');
 }
 
 async function saveDog(e) {
   e.preventDefault();
-  const token = localStorage.getItem('access_token');
-  if (!token) return;
 
   const dogId = document.getElementById('dogId').value;
   const name = document.getElementById('dogName').value;
@@ -775,16 +735,14 @@ async function saveDog(e) {
 
     const response = await fetch(url, {
       method,
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, breed, age }),
     });
 
     if (!response.ok) {
       const data = await response.json();
-      msgEl.textContent = data.detail || 'Ошибка сохранения';
+      msgEl.textContent = errorText(data, 'Ошибка сохранения');
       msgEl.className = 'message error';
       btn.textContent = 'Сохранить';
       btn.disabled = false;
@@ -806,18 +764,15 @@ async function saveDog(e) {
 async function deleteDog(dogId) {
   if (!confirm('Удалить собаку из профиля?')) return;
 
-  const token = localStorage.getItem('access_token');
-  if (!token) return;
-
   try {
     const response = await fetch(`${API_BASE}/users/me/dogs/${dogId}`, {
       method: 'DELETE',
-      headers: { 'Authorization': `Bearer ${token}` },
+      credentials: 'include',
     });
 
     if (!response.ok) {
       const data = await response.json();
-      showToast(data.detail || 'Ошибка удаления', 'error');
+      showToast(errorText(data, 'Ошибка удаления'), 'error');
       return;
     }
 
@@ -827,7 +782,173 @@ async function deleteDog(dogId) {
   }
 }
 
+// ===== Курс дрессировки =====
+// Курс → секции (1 секция = 1 прогулка) → упражнения. Пользователь отмечает
+// пройденные прогулки; сервер считает прогресс и отдаёт его в /courses.
+let currentCourseId = null;
+
+function renderCourses(courses) {
+  let container = document.getElementById('coursesContainer');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'coursesContainer';
+    container.className = 'dashboard-section';
+    document.querySelector('.dashboard-main').appendChild(container);
+  }
+
+  container.innerHTML = `
+    <h2 class="section-title">Курс дрессировки</h2>
+    ${courses.length === 0
+      ? '<p class="empty-text">Вам пока не назначен ни один курс. Доступ открывает администратор</p>'
+      : courses.map(c => {
+          const percent = c.sections_count ? Math.round((c.completed_count / c.sections_count) * 100) : 0;
+          return `
+            <div class="content-card course-card" onclick="showCourseDetail(${c.id})">
+              <h3 class="content-card-title">${escapeHtml(c.title)}</h3>
+              <p class="content-card-excerpt">${escapeHtml(c.description || 'Без описания')}</p>
+              <div class="course-card-progress">
+                <div class="course-progress-bar"><div class="course-progress-fill" style="width: ${percent}%"></div></div>
+                <span class="course-progress-text">Пройдено ${c.completed_count} из ${c.sections_count} прогулок</span>
+              </div>
+            </div>
+          `;
+        }).join('')
+    }
+  `;
+}
+
+async function loadCourses() {
+  try {
+    const response = await fetch(`${API_BASE}/courses`, { credentials: 'include', cache: 'no-store' });
+    if (response.ok) {
+      renderCourses(await response.json());
+    }
+  } catch (err) {
+    console.error('Ошибка загрузки курсов:', err);
+  }
+}
+
+async function showCourseDetail(courseId) {
+  currentCourseId = courseId;
+  const modal = document.getElementById('courseModal');
+  modal.classList.remove('hidden');
+  document.getElementById('courseModalTitle').textContent = 'Загрузка...';
+  document.getElementById('courseModalProgress').textContent = '';
+  document.getElementById('courseModalBody').innerHTML =
+    '<p style="color: #5a5f68; text-align: center; padding: 40px 0;">Загрузка курса...</p>';
+  await refreshCourseModal();
+}
+
+async function refreshCourseModal() {
+  if (currentCourseId === null) return;
+  try {
+    const response = await fetch(`${API_BASE}/courses/${currentCourseId}`, {
+      credentials: 'include',
+      cache: 'no-store',
+    });
+    if (response.status === 403) {
+      document.getElementById('courseModalTitle').textContent = 'Доступ закрыт';
+      document.getElementById('courseModalBody').innerHTML =
+        '<p style="color: #e5a92e; text-align: center; padding: 40px 0;">Доступ к этому курсу не открыт. Попросите администратора пригласить вас на курс.</p>';
+      return;
+    }
+    if (!response.ok) throw new Error('HTTP ' + response.status);
+    renderCourseModal(await response.json());
+  } catch (err) {
+    console.error('Ошибка загрузки курса:', err);
+    document.getElementById('courseModalTitle').textContent = 'Ошибка загрузки';
+    document.getElementById('courseModalBody').innerHTML =
+      '<p style="color: #e74c3c; text-align: center; padding: 40px 0;">Не удалось загрузить курс.</p>';
+  }
+}
+
+function renderCourseModal(course) {
+  const total = course.sections.length;
+  const done = course.sections.filter(s => s.completed).length;
+  const percent = total ? Math.round((done / total) * 100) : 0;
+
+  document.getElementById('courseModalTitle').textContent = course.title;
+  document.getElementById('courseModalProgress').textContent = `Пройдено ${done} из ${total} прогулок`;
+
+  const body = document.getElementById('courseModalBody');
+  body.innerHTML = `
+    ${course.description ? `<p class="course-modal-desc">${escapeHtml(course.description).replace(/\n/g, '<br>')}</p>` : ''}
+    <div class="course-progress-bar course-progress-bar-lg"><div class="course-progress-fill" style="width: ${percent}%"></div></div>
+    ${total === 0
+      ? '<p class="empty-text">В курсе пока нет секций</p>'
+      : course.sections.map((s, i) => `
+        <div class="course-section-item ${s.completed ? 'completed' : ''}">
+          <div class="course-section-head">
+            <h3>${i + 1}. ${escapeHtml(s.title)}</h3>
+            ${s.completed ? '<span class="course-status-badge">✓ Пройдено</span>' : ''}
+          </div>
+          ${s.description ? `<p class="course-section-desc">${escapeHtml(s.description).replace(/\n/g, '<br>')}</p>` : ''}
+          ${s.exercises.length
+            ? `<ul class="course-exercises">${s.exercises.map(e => {
+                const meta = [e.repetitions, e.duration_minutes ? e.duration_minutes + ' мин' : '']
+                  .filter(Boolean).join(' · ');
+                return `
+                  <li>
+                    <span class="course-exercise-title">${escapeHtml(e.title)}</span>
+                    ${meta ? `<span class="course-exercise-meta">${escapeHtml(meta)}</span>` : ''}
+                    ${e.description ? `<span class="course-exercise-desc">${escapeHtml(e.description).replace(/\n/g, '<br>')}</span>` : ''}
+                  </li>
+                `;
+              }).join('')}</ul>`
+            : '<p class="empty-text">Упражнений нет</p>'}
+          <button class="btn-small ${s.completed ? 'btn-secondary' : 'btn-primary'}"
+                  onclick="toggleSectionComplete(${s.id}, ${s.completed})">
+            ${s.completed ? 'Пройти заново' : 'Отметить пройденной'}
+          </button>
+        </div>
+      `).join('')}
+  `;
+}
+
+async function toggleSectionComplete(sectionId, completed) {
+  try {
+    const response = await fetch(`${API_BASE}/sections/${sectionId}/complete`, {
+      method: completed ? 'DELETE' : 'POST',
+      credentials: 'include',
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      showToast(errorText(data, 'Не удалось обновить отметку'), 'error');
+      return;
+    }
+    await refreshCourseModal();
+    loadCourses();   // обновить прогресс в карточке курса
+    if (!completed) showToast('Прогулка отмечена ✓', 'success');
+  } catch (err) {
+    showToast('Ошибка сети', 'error');
+  }
+}
+
+function closeCourseDetail() {
+  document.getElementById('courseModal').classList.add('hidden');
+  currentCourseId = null;
+}
+
+// Закрытие модалки курса по клику на overlay
+document.addEventListener('click', (e) => {
+  const modal = document.getElementById('courseModal');
+  if (e.target === modal) closeCourseDetail();
+});
+
 // ===== Toast Notifications =====
+// FastAPI отдаёт detail строкой («Курс не найден») либо массивом ошибок
+// валидации ([{loc, msg}]). Без нормализации в интерфейс попадало
+// «[object Object]» вместо причины. Приводим оба варианта к одной строке.
+function errorText(data, fallback) {
+  const detail = data && data.detail;
+  if (typeof detail === 'string' && detail) return detail;
+  if (Array.isArray(detail)) {
+    const parts = detail.map(item => (item && item.msg ? String(item.msg) : null)).filter(Boolean);
+    if (parts.length) return parts.join('; ');
+  }
+  return fallback;
+}
+
 function showToast(message, type = 'info') {
   // Удаляем старые тосты
   const oldToasts = document.querySelectorAll('.toast-notification');
@@ -852,16 +973,7 @@ function showToast(message, type = 'info') {
 
 // ===== Init =====
 document.addEventListener('DOMContentLoaded', () => {
-  // Обновляем ссылки в sidebar — добавляем токен к навигации
-  const token = localStorage.getItem('access_token');
-  if (token) {
-    const sidebarLinks = document.querySelectorAll('.sidebar-link');
-    sidebarLinks.forEach(link => {
-      const href = link.getAttribute('href');
-      if (href && !href.startsWith('http') && !href.startsWith('#')) {
-        link.href = href + '?token=' + token;
-      }
-    });
-  }
+  // Дописывать токен к ссылкам больше не нужно: он в HttpOnly-cookie и уходит
+  // с каждым запросом сам. Нет сессии — loadProfile() вернёт на страницу входа.
   loadProfile();
 });

@@ -1,3 +1,16 @@
+// FastAPI отдаёт detail строкой («Курс не найден») либо массивом ошибок
+// валидации ([{loc, msg}]). Без нормализации в интерфейс попадало
+// «[object Object]» вместо причины. Приводим оба варианта к одной строке.
+function errorText(data, fallback) {
+  const detail = data && data.detail;
+  if (typeof detail === 'string' && detail) return detail;
+  if (Array.isArray(detail)) {
+    const parts = detail.map(item => (item && item.msg ? String(item.msg) : null)).filter(Boolean);
+    if (parts.length) return parts.join('; ');
+  }
+  return fallback;
+}
+
 // ===== Configuration =====
 const API_BASE = ''; // relative to current host
 
@@ -56,23 +69,21 @@ async function handleSignin(event) {
     const response = await fetch(`${API_BASE}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      credentials: 'include',
       body: formData,
     });
 
     const data = await response.json();
 
     if (response.ok) {
-      // Сохраняем токен и перенаправляем
-      // ВАЖНО: передаём токен через query parameter, потому что при
-      // обычном HTTP-запросе (переход по ссылке) браузер не отправляет
-      // localStorage автоматически. Бэкенд читает токен из ?token=
-      localStorage.setItem('access_token', data.access_token);
+      // Токен отдан в HttpOnly-cookie — браузер отправит её сам, а JS
+      // токен не читает и нигде не хранит (защита от XSS-кражи).
       showMessage('signinMessage', 'Вход выполнен! Перенаправление...', 'success');
       setTimeout(() => {
-        window.location.href = '/dashboard?token=' + data.access_token;
+        window.location.href = '/dashboard';
       }, 800);
     } else {
-      showMessage('signinMessage', data.detail || 'Ошибка входа', 'error');
+      showMessage('signinMessage', errorText(data, 'Ошибка входа'), 'error');
     }
   } catch (err) {
     showMessage('signinMessage', 'Не удалось подключиться к серверу', 'error');
@@ -99,6 +110,7 @@ async function handleRegister(event) {
     const response = await fetch(`${API_BASE}/auth/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify({ email, password }),
     });
 
@@ -111,22 +123,20 @@ async function handleRegister(event) {
       const loginResponse = await fetch(`${API_BASE}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        credentials: 'include',
         body: new URLSearchParams({ username: email, password }),
       });
 
-      const loginData = await loginResponse.json();
-
       if (loginResponse.ok) {
-        localStorage.setItem('access_token', loginData.access_token);
+        // Cookie уже выставлена сервером — просто переходим в кабинет
         setTimeout(() => {
-          // Передаём токен через query parameter для авторизации на dashboard
-          window.location.href = '/dashboard?token=' + loginData.access_token;
+          window.location.href = '/dashboard';
         }, 800);
       } else {
         showMessage('registerMessage', 'Регистрация успешна, но вход не удался. Попробуйте войти вручную.', 'error');
       }
     } else {
-      showMessage('registerMessage', data.detail || 'Ошибка регистрации', 'error');
+      showMessage('registerMessage', errorText(data, 'Ошибка регистрации'), 'error');
     }
   } catch (err) {
     showMessage('registerMessage', 'Не удалось подключиться к серверу', 'error');
@@ -137,13 +147,17 @@ async function handleRegister(event) {
   }
 }
 
-// ===== Check for existing token on load =====
-document.addEventListener('DOMContentLoaded', () => {
-  const token = localStorage.getItem('access_token');
-  if (token) {
-    // Уже авторизован — перенаправляем на dashboard с токеном в query parameter
-    // Это нужно, потому что при обычном HTTP-запросе браузер не отправляет
-    // localStorage автоматически, а бэкенд читает токен из ?token=
-    window.location.href = '/dashboard?token=' + token;
+// ===== Уже авторизован? =====
+// Токен в HttpOnly-cookie, из JS его не прочитать. Поэтому просто спрашиваем
+// сервер: если сессия жива — уводим в личный кабинет, иначе остаёмся на входе.
+document.addEventListener('DOMContentLoaded', async () => {
+  try {
+    const response = await fetch(`${API_BASE}/users/me`, { credentials: 'include' });
+    if (response.ok) {
+      window.location.href = '/dashboard';
+    }
+  } catch (err) {
+    // Сервер недоступен — не мешаем пользователю войти вручную
+    console.error('Session check failed:', err);
   }
 });

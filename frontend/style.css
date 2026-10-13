@@ -2086,3 +2086,249 @@ body::before {
 .toast-info {
   background: #3498db;
 }
+
+/* ===== Course (курс дрессировки) ===== */
+.admin-hint {
+  color: #8a8f98;
+  font-size: 13px;
+  margin: 0 0 16px 0;
+}
+
+/* Прогресс-бар (карточка курса и модалка) */
+.course-progress-bar {
+  width: 100%;
+  height: 8px;
+  background-color: #2e3238;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.course-progress-bar-lg {
+  height: 10px;
+  margin: 8px 0 20px 0;
+}
+
+.course-progress-fill {
+  height: 100%;
+  background-color: #e5a92e;
+  border-radius: 999px;
+  transition: width 0.3s ease;
+}
+
+.course-card-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+  cursor: default;
+}
+
+.course-progress-text {
+  font-size: 12px;
+  color: #8a8f98;
+}
+
+/* Заголовок и общая часть модалки курса */
+.course-modal-desc {
+  color: #b0b4bb;
+  font-size: 14px;
+  line-height: 1.6;
+  margin-bottom: 12px;
+}
+
+.course-section-item {
+  background-color: #25282c;
+  border: 1px solid #2e3238;
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 12px;
+}
+
+.course-section-item.completed {
+  border-color: #3c5a3c;
+}
+
+.course-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.course-section-head h3 {
+  font-size: 15px;
+  font-weight: 600;
+  color: #e0e0e0;
+  margin: 0;
+}
+
+.course-status-badge {
+  font-size: 12px;
+  color: #7bc47f;
+  white-space: nowrap;
+}
+
+.course-section-desc {
+  font-size: 13px;
+  color: #8a8f98;
+  line-height: 1.5;
+  margin: 0 0 10px 0;
+}
+
+.course-exercises {
+  list-style: none;
+  margin: 0 0 12px 0;
+  padding: 0;
+}
+
+.course-exercises li {
+  padding: 8px 0;
+  border-top: 1px solid #2e3238;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.course-exercises li:first-child {
+  border-top: none;
+}
+
+.course-exercise-title {
+  font-size: 14px;
+  color: #e0e0e0;
+  font-weight: 500;
+}
+
+.course-exercise-meta {
+  font-size: 12px;
+  color: #e5a92e;
+}
+
+.course-exercise-desc {
+  flex-basis: 100%;
+  font-size: 12px;
+  color: #8a8f98;
+  line-height: 1.5;
+}
+
+/* ===== Course (админка: секции и упражнения) ===== */
+.course-sections {
+  margin-top: 16px;
+}
+
+.course-sections-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 10px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid #2e3238;
+}
+
+.course-sections-count {
+  font-size: 13px;
+  color: #8a8f98;
+}
+
+.course-section-card {
+  background-color: #1f2226;
+  border: 1px solid #2e3238;
+  border-radius: 10px;
+  padding: 14px;
+  margin-bottom: 12px;
+}
+
+.course-section-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.exercise-list {
+  margin: 10px 0;
+}
+
+.exercise-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  border-top: 1px solid #2e3238;
+  font-size: 13px;
+}
+
+.exercise-row:first-child {
+  border-top: none;
+}
+
+.exercise-index {
+  color: #5a5f68;
+  min-width: 18px;
+}
+
+.exercise-title {
+  color: #e0e0e0;
+  font-weight: 500;
+}
+
+.exercise-meta {
+  color: #e5a92e;
+  font-size: 12px;
+}
+
+.exercise-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 6px;
+}
+
+/* ===== Зачисление на курс (модалка «Пригласить на курс») ===== */
+.enroll-list {
+  max-height: 360px;
+  overflow-y: auto;
+  margin: 12px 0;
+  border: 1px solid #2e3238;
+  border-radius: 8px;
+  background: #23262a;
+}
+
+.enroll-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid #2e3238;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.enroll-row:last-child { border-bottom: none; }
+.enroll-row:hover { background: #2a2e33; }
+
+.enroll-row input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: #e5a92e;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.enroll-name {
+  color: #e0e0e0;
+  font-size: 14px;
+  word-break: break-all;
+}
+
+.enroll-badge {
+  margin-left: auto;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #e5a92e;
+  border: 1px solid #e5a92e;
+  border-radius: 4px;
+  padding: 1px 6px;
+}
