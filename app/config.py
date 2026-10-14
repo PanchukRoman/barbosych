@@ -36,10 +36,17 @@ class Settings(BaseSettings):
     # не попадали в статику фронтенда и в git.
     UPLOAD_DIR: str = str(BASE_DIR / "uploads")
     MAX_AVATAR_BYTES: int = 5 * 1024 * 1024   # 5 МБ
+    # Тот же лимит для фотографии собаки: отдельная настройка, чтобы её можно
+    # было поднять/опустить, не задевая аватары пользователей.
+    MAX_DOG_PHOTO_BYTES: int = 5 * 1024 * 1024   # 5 МБ
 
     @property
     def avatar_dir(self) -> Path:
         return Path(self.UPLOAD_DIR) / "avatars"
+
+    @property
+    def dog_photo_dir(self) -> Path:
+        return Path(self.UPLOAD_DIR) / "dogs"
 
 
 settings = Settings()  # единственный экземпляр, его импортируют все модули

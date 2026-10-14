@@ -41,15 +41,17 @@ async def lifespan(app: FastAPI):
     # личный кабинет работают, а загрузка аватара вернёт понятную 503
     # (см. routers/users.py). Так заведомо рабочая часть не блокируется
     # из-за прав на одну папку.
-    try:
-        settings.avatar_dir.mkdir(parents=True, exist_ok=True)
-    except OSError as exc:
-        logger.warning(
-            "Каталог загрузок недоступен: %s (%s). Аватары будут отклоняться "
-            "с HTTP 503 — укажите доступный на запись путь в переменной UPLOAD_DIR.",
-            settings.avatar_dir,
-            exc,
-        )
+    for upload_dir in (settings.avatar_dir, settings.dog_photo_dir):
+        try:
+            upload_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            logger.warning(
+                "Каталог загрузок недоступен: %s (%s). Загрузка файлов будет "
+                "отклоняться с HTTP 503 — укажите доступный на запись путь "
+                "в переменной UPLOAD_DIR.",
+                upload_dir,
+                exc,
+            )
 
     # Создаёт таблицы, которых ещё нет (существующие не трогает).
     # Для изменения уже существующих таблиц — migrate.py / Alembic.

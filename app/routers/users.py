@@ -1,4 +1,5 @@
 import uuid
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
@@ -14,24 +15,93 @@ router = APIRouter(prefix="/users", tags=["Users"])
 # Разрешаем только эти форматы. Расширение НЕ берём из имени файла, которое
 # присылает клиент: там может быть .html/.svg (исполняемый в браузере код)
 # или "..." с обходом каталога. Формат определяем по содержимому файла.
-_AVATAR_SIGNATURES = (
+_IMAGE_SIGNATURES = (
     ("jpg", lambda data: data.startswith(b"\xff\xd8\xff")),
     ("png", lambda data: data.startswith(b"\x89PNG\r\n\x1a\n")),
     ("webp", lambda data: data.startswith(b"RIFF") and data[8:12] == b"WEBP"),
 )
-AVATAR_CONTENT_TYPES = {
+IMAGE_CONTENT_TYPES = {
     "jpg": "image/jpeg",
     "png": "image/png",
     "webp": "image/webp",
 }
 
 
-def _detect_avatar_extension(data: bytes) -> str | None:
+def _detect_image_extension(data: bytes) -> str | None:
     """Определяет формат картинки по «магическим» байтам содержимого."""
-    for extension, matches in _AVATAR_SIGNATURES:
+    for extension, matches in _IMAGE_SIGNATURES:
         if matches(data):
             return extension
     return None
+
+
+async def _read_image(file: UploadFile, max_bytes: int) -> tuple[bytes, str]:
+    """Читает загруженную картинку, проверяя размер и реальный формат.
+
+    Размер проверяем чтением max_bytes + 1 байт: файл в 5 ГБ не осядет в RAM.
+    """
+    contents = await file.read(max_bytes + 1)
+    if len(contents) > max_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Максимальный размер файла: {max_bytes // (1024 * 1024)}MB",
+        )
+
+    extension = _detect_image_extension(contents)
+    if extension is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Допустимые форматы: JPEG, PNG, WebP",
+        )
+    return contents, extension
+
+
+def _write_image(contents: bytes, extension: str, directory: Path) -> str:
+    """Сохраняет картинку под сгенерированным именем и возвращает имя файла.
+
+    Имя целиком наше (uuid4 + безопасное расширение из белого списка), поэтому
+    обход каталога через имя файла клиента невозможен.
+    """
+    filename = f"{uuid.uuid4().hex}.{extension}"
+    try:
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / filename).write_bytes(contents)
+    except OSError:
+        # Диск переполнен / нет прав на каталог / путь недоступен — отдаём
+        # понятный 503, а не невнятный 500 из середины хендлера.
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Хранилище для загрузок недоступно — проверьте путь UPLOAD_DIR",
+        )
+    return filename
+
+
+def _remove_image(filename: str | None, directory: Path) -> None:
+    """Удаляет ранее сохранённый файл, если он есть и лежит внутри каталога.
+
+    basename отсекает выход из папки, а сравнение каталогов — защита от
+    случайного удаления файла по абсолютному пути из БД.
+    """
+    if not filename:
+        return
+    path = directory / filename.split("/")[-1].split("\\")[-1]
+    if path.parent.resolve() == directory.resolve() and path.is_file():
+        path.unlink(missing_ok=True)
+
+
+def _get_own_dog(db: Session, current_user: User, dog_id: int) -> Dog:
+    """Собака текущего пользователя или 404 — чужая собака «не существует»."""
+    dog = (
+        db.query(Dog)
+        .filter(Dog.id == dog_id, Dog.owner_id == current_user.id)
+        .first()
+    )
+    if not dog:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Собака не найдена или не принадлежит вам",
+        )
+    return dog
 
 
 @router.get("/me", response_model=UserRead)
@@ -67,48 +137,13 @@ async def upload_avatar(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Загрузка аватара пользователя.
+    """Загрузка аватара пользователя."""
+    contents, extension = await _read_image(file, settings.MAX_AVATAR_BYTES)
+    filename = _write_image(contents, extension, settings.avatar_dir)
 
-    Что проверяем:
-      * реальный формат по содержимому (не по доверчивому content_type);
-      * размер — читаем не больше лимита + 1 байт, чтобы 5 ГБ не осели в RAM;
-      * имя файла генерируем сами, поэтому обход каталога невозможен.
-    """
-    max_bytes = settings.MAX_AVATAR_BYTES
-    contents = await file.read(max_bytes + 1)
-    if len(contents) > max_bytes:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Максимальный размер файла: {max_bytes // (1024 * 1024)}MB",
-        )
-
-    extension = _detect_avatar_extension(contents)
-    if extension is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Допустимые форматы: JPEG, PNG, WebP",
-        )
-
-    # Имя целиком наше: uuid4 + безопасное расширение из белого списка.
-    filename = f"{uuid.uuid4().hex}.{extension}"
-    avatar_dir = settings.avatar_dir
-    try:
-        avatar_dir.mkdir(parents=True, exist_ok=True)
-        (avatar_dir / filename).write_bytes(contents)
-    except OSError:
-        # Диск переполнен / нет прав на каталог / путь недоступен — отдаём
-        # понятный 503, а не невнятный 500 из середины хендлера.
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Хранилище для загрузок недоступно — проверьте путь UPLOAD_DIR",
-        )
-
-    # Удаляем предыдущий аватар (basename отсекает любые попытки выйти из папки)
-    previous = current_user.avatar
-    if previous:
-        old_path = avatar_dir / previous.split("/")[-1].split("\\")[-1]
-        if old_path.parent.resolve() == avatar_dir.resolve() and old_path.is_file():
-            old_path.unlink(missing_ok=True)
+    # Удаляем предыдущий аватар после успешной записи нового: если запись
+    # упала, старый файл остаётся на месте и профиль не «ломается».
+    _remove_image(current_user.avatar, settings.avatar_dir)
 
     current_user.avatar = filename
     db.commit()
@@ -157,12 +192,7 @@ def update_dog(
     current_user: User = Depends(get_current_user),
 ):
     """Обновить информацию о собаке."""
-    dog = db.query(Dog).filter(Dog.id == dog_id, Dog.owner_id == current_user.id).first()
-    if not dog:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Собака не найдена или не принадлежит вам",
-        )
+    dog = _get_own_dog(db, current_user, dog_id)
 
     if dog_data.name is not None:
         dog.name = dog_data.name
@@ -176,18 +206,60 @@ def update_dog(
     return dog
 
 
+@router.post("/me/dogs/{dog_id}/photo", response_model=DogRead)
+async def upload_dog_photo(
+    dog_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Загрузить (или заменить) фотографию собаки.
+
+    Проверки те же, что и для аватара: реальный формат по содержимому файла и
+    лимит размера. Собака обязана принадлежать текущему пользователю, иначе 404.
+    """
+    dog = _get_own_dog(db, current_user, dog_id)
+
+    contents, extension = await _read_image(file, settings.MAX_DOG_PHOTO_BYTES)
+    filename = _write_image(contents, extension, settings.dog_photo_dir)
+
+    # Старое фото удаляем только после успешной записи нового.
+    _remove_image(dog.photo, settings.dog_photo_dir)
+
+    dog.photo = filename
+    db.commit()
+    db.refresh(dog)
+    return dog
+
+
+@router.delete("/me/dogs/{dog_id}/photo", response_model=DogRead)
+def delete_dog_photo(
+    dog_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Убрать фотографию собаки: файл удаляется, поле photo обнуляется.
+
+    Идемпотентно — повторный вызов на собаке без фото не ошибка.
+    """
+    dog = _get_own_dog(db, current_user, dog_id)
+
+    _remove_image(dog.photo, settings.dog_photo_dir)
+    dog.photo = None
+    db.commit()
+    db.refresh(dog)
+    return dog
+
+
 @router.delete("/me/dogs/{dog_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_dog(
     dog_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Удалить собаку из профиля."""
-    dog = db.query(Dog).filter(Dog.id == dog_id, Dog.owner_id == current_user.id).first()
-    if not dog:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Собака не найдена или не принадлежит вам",
-        )
+    """Удалить собаку из профиля вместе с её фотографией."""
+    dog = _get_own_dog(db, current_user, dog_id)
+
+    _remove_image(dog.photo, settings.dog_photo_dir)
     db.delete(dog)
     db.commit()

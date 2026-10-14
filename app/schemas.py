@@ -207,6 +207,8 @@ class DogReadSimple(BaseModel):
     name: str
     breed: str
     age: int
+    # Имя файла фото в uploads/dogs; None — фото нет. URL: /uploads/dogs/<photo>
+    photo: str | None = None
 
 
 class ParticipantRead(BaseModel):
@@ -249,6 +251,7 @@ class DogRead(BaseModel):
     breed: str
     age: int
     owner_id: int
+    photo: str | None = None
     created_at: datetime
 
 

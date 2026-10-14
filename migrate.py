@@ -7,6 +7,7 @@
 3. UNIQUE(user_id, event_id) в event_registrations — защита от двойной записи
 4. Таблицы курса дрессировки: courses, course_sections, exercises, section_progress
 5. Таблица course_enrollments — зачисление пользователей на курс (доступ)
+6. Колонка photo в таблице dogs — фотография собаки
 
 Запуск из корня проекта:
   python3 migrate.py
@@ -234,6 +235,21 @@ def migrate():
                 )
             """)
             print("  ✓ таблица course_enrollments создана")
+
+        # 9. Фотография собаки. Таблица dogs создаётся в шаге 2 (или уже
+        # существует на боевой базе), поэтому колонку добавляем отдельным
+        # ALTER — так же идемпотентно, как avatar у users.
+        print("\n📋 Шаг 9: Добавляем колонку photo в dogs...")
+        cur.execute("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'dogs' AND column_name = 'photo'
+              AND table_schema = current_schema()
+        """)
+        if cur.fetchone():
+            print("  ✓ колонка photo уже существует")
+        else:
+            cur.execute("ALTER TABLE dogs ADD COLUMN photo VARCHAR(255)")
+            print("  ✓ колонка photo добавлена")
 
     conn.commit()
     conn.close()
