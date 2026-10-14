@@ -1376,6 +1376,16 @@ body::before {
   margin: 0;
 }
 
+/* Прочитанные уведомления остаются в списке, но приглушены — так видно,
+   что именно появилось нового с прошлого раза. */
+.notification-item.read .notification-icon {
+  opacity: 0.55;
+}
+
+.notification-item.read .notification-text {
+  color: #9aa0a8;
+}
+
 /* ===== Article Detail Modal ===== */
 .article-modal-overlay {
   position: fixed;

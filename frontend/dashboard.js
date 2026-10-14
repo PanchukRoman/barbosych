@@ -102,7 +102,7 @@ async function loadProfile() {
     profileCard.classList.remove('hidden');
 
     // Загружаем статьи и события
-    loadContent(user.role);
+    loadContent(user);
     loadDogs();
   } catch (err) {
     console.error('Ошибка загрузки профиля:', err);
@@ -124,29 +124,32 @@ function formatDate(dateStr) {
 }
 
 // ===== Load Articles & Events =====
-async function loadContent(role) {
+async function loadContent(user) {
   try {
-    // Загружаем статьи
-    const articlesResp = await fetch(`${API_BASE}/articles`, { credentials: 'include' });
+    // Статьи
+    let articles = null;
+    const articlesResp = await fetch(`${API_BASE}/articles`, { credentials: 'include', cache: 'no-store' });
 
     if (articlesResp.ok) {
-      const articles = await articlesResp.json();
+      articles = await articlesResp.json();
       renderArticles(articles);
     }
 
-    // Загружаем события
-    const eventsResp = await fetch(`${API_BASE}/events`, { credentials: 'include' });
+    // События
+    let events = null;
+    const eventsResp = await fetch(`${API_BASE}/events`, { credentials: 'include', cache: 'no-store' });
 
     if (eventsResp.ok) {
-      const events = await eventsResp.json();
+      events = await eventsResp.json();
       renderEvents(events);
     }
 
-    // Загружаем курс дрессировки
-    const coursesResp = await fetch(`${API_BASE}/courses`, { credentials: 'include' });
+    // Курс дрессировки
+    let courses = null;
+    const coursesResp = await fetch(`${API_BASE}/courses`, { credentials: 'include', cache: 'no-store' });
 
     if (coursesResp.ok) {
-      const courses = await coursesResp.json();
+      courses = await coursesResp.json();
       renderCourses(courses);
     }
 
@@ -154,17 +157,18 @@ async function loadContent(role) {
     // /admin читает сессию из cookie, которую браузер отправляет сам.
     const adminLink = document.getElementById('adminLink');
     if (adminLink) {
-      adminLink.style.display = role === 'admin' ? 'block' : 'none';
+      adminLink.style.display = user.role === 'admin' ? 'block' : 'none';
     }
 
-    if (role !== 'admin') {
-      // Для обычных пользователей показываем колокольчик уведомлений
-      const bell = document.getElementById('notificationBell');
-      if (bell) {
-        bell.style.display = 'flex';
-        loadNotifications();
-      }
+    // Колокольчик показываем всем: он сообщает о новом контенте (статьи,
+    // события, материалы курса), который появился с прошлого визита.
+    const bell = document.getElementById('notificationBell');
+    if (bell) {
+      bell.style.display = 'flex';
     }
+
+    // Данные уже загружены — сравниваем их с прошлым визитом и обновляем ленту.
+    syncNotifications(user, { articles, events, courses });
   } catch (err) {
     console.error('Ошибка загрузки контента:', err);
   }
@@ -497,30 +501,232 @@ document.addEventListener('keydown', (e) => {
 });
 
 // ===== Notifications =====
-function loadNotifications() {
-  // Получаем уведомления из localStorage
-  const notifications = JSON.parse(localStorage.getItem('notifications') || '[]');
+// Колокольчик показывает «новый контент»: статьи, события и материалы курса
+// (курс, прогулки, упражнения), которые появились с прошлого визита.
+//
+// Что пользователь уже видел и сам список уведомлений лежат в localStorage под
+// ключом пользователя — в одном браузере могут входить разные люди, и лента
+// одного не должна протекать к другому. При самом первом входе мы только
+// запоминаем текущий контент как базу, иначе человека засыпало бы
+// уведомлениями обо всём, что уже лежало на сервере.
 
+const NOTIFICATIONS_LIMIT = 50; // потолок: localStorage не резиновый
+
+const NOTIFICATION_ICONS = {
+  article: '📄',
+  event: '📅',
+  course: '🐕',
+  section: '🐾',
+  exercise: '🎯',
+};
+
+// id пользователя, чья лента сейчас отрисована.
+let notificationsUserId = null;
+
+function notificationsStorageKey(userId) {
+  return `barbosych.notifications.user${userId}`;
+}
+
+function emptyNotificationState() {
+  return {
+    initialized: false,
+    // id контента, который пользователь уже видел
+    seenArticles: [],
+    seenEvents: [],
+    seenCourses: [],
+    // course_id → сколько прогулок/упражнений в курсе уже видели
+    sectionsByCourse: {},
+    exercisesByCourse: {},
+    items: [],
+  };
+}
+
+function loadNotificationState(userId) {
+  const state = emptyNotificationState();
+  try {
+    const raw = localStorage.getItem(notificationsStorageKey(userId));
+    if (!raw) return state;
+
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return state;
+
+    ['seenArticles', 'seenEvents', 'seenCourses', 'items'].forEach((key) => {
+      if (Array.isArray(parsed[key])) state[key] = parsed[key];
+    });
+    ['sectionsByCourse', 'exercisesByCourse'].forEach((key) => {
+      if (parsed[key] && typeof parsed[key] === 'object') state[key] = parsed[key];
+    });
+    state.initialized = parsed.initialized === true;
+    return state;
+  } catch (err) {
+    // Битый localStorage не должен ломать кабинет — начинаем с чистого листа.
+    console.error('Ошибка чтения уведомлений:', err);
+    return emptyNotificationState();
+  }
+}
+
+function saveNotificationState(userId, state) {
+  try {
+    localStorage.setItem(notificationsStorageKey(userId), JSON.stringify(state));
+  } catch (err) {
+    console.error('Ошибка сохранения уведомлений:', err);
+  }
+}
+
+// Держим только последние 500 id: более старые новинками уже не станут.
+function rememberIds(known, ids) {
+  const merged = new Set(known);
+  ids.forEach((id) => merged.add(id));
+  return [...merged].slice(-500);
+}
+
+// Сравнивает свежие данные с тем, что пользователь уже видел.
+function collectNewContent(state, { articles, events, courses }) {
+  const fresh = [];
+
+  (articles || []).forEach((article) => {
+    if (state.seenArticles.includes(article.id)) return;
+    fresh.push({
+      key: `article:${article.id}`,
+      type: 'article',
+      text: `Новая статья: «${article.title}»`,
+      time: article.created_at || null,
+    });
+  });
+
+  (events || []).forEach((event) => {
+    if (state.seenEvents.includes(event.id)) return;
+    fresh.push({
+      key: `event:${event.id}`,
+      type: 'event',
+      text: `Новое событие: «${event.title}»`,
+      time: event.date || event.created_at || null,
+    });
+  });
+
+  (courses || []).forEach((course) => {
+    if (!state.seenCourses.includes(course.id)) {
+      fresh.push({
+        key: `course:${course.id}`,
+        type: 'course',
+        text: `Новый курс: «${course.title}»`,
+        time: null,
+      });
+    }
+
+    // Рост числа прогулок/упражнений в уже известном курсе — новый материал.
+    // Для только что появившегося курса это отдельными новостями не считаем.
+    const knownSections = state.sectionsByCourse[course.id];
+    if (typeof knownSections === 'number' && course.sections_count > knownSections) {
+      fresh.push({
+        key: `course:${course.id}:sections:${course.sections_count}`,
+        type: 'section',
+        text: `Новая прогулка в курсе «${course.title}» (всего ${course.sections_count})`,
+        time: null,
+      });
+    }
+
+    const knownExercises = state.exercisesByCourse[course.id];
+    if (typeof knownExercises === 'number' && course.exercises_count > knownExercises) {
+      fresh.push({
+        key: `course:${course.id}:exercises:${course.exercises_count}`,
+        type: 'exercise',
+        text: `Новые упражнения в курсе «${course.title}» (всего ${course.exercises_count})`,
+        time: null,
+      });
+    }
+  });
+
+  return fresh;
+}
+
+function syncNotifications(user, payload) {
+  if (!user || typeof user.id === 'undefined' || user.id === null) return;
+
+  notificationsUserId = user.id;
+  const state = loadNotificationState(user.id);
+  const firstVisit = !state.initialized;
+  // Первый заход — только запоминаем базу. Иначе первый вход сразу показал бы
+  // «новым» весь контент, который на сервере лежал и раньше.
+  const fresh = firstVisit ? [] : collectNewContent(state, payload);
+
+  state.seenArticles = rememberIds(state.seenArticles, (payload.articles || []).map((a) => a.id));
+  state.seenEvents = rememberIds(state.seenEvents, (payload.events || []).map((e) => e.id));
+  state.seenCourses = rememberIds(state.seenCourses, (payload.courses || []).map((c) => c.id));
+  (payload.courses || []).forEach((course) => {
+    state.sectionsByCourse[course.id] = course.sections_count;
+    state.exercisesByCourse[course.id] = course.exercises_count;
+  });
+
+  // Новинки — в начало; дубликатов нет, ключ уникален для каждого материала.
+  const freshItems = fresh.map((item) => ({ ...item, read: false }));
+  const freshKeys = new Set(freshItems.map((item) => item.key));
+  state.items = [...freshItems, ...state.items.filter((item) => !freshKeys.has(item.key))]
+    .slice(0, NOTIFICATIONS_LIMIT);
+
+  state.initialized = true;
+  saveNotificationState(user.id, state);
+  renderNotifications(state.items);
+
+  if (freshItems.length) {
+    showToast(
+      freshItems.length === 1 ? freshItems[0].text : `Новых материалов: ${freshItems.length}`,
+      'info'
+    );
+  }
+}
+
+function notificationTime(value) {
+  if (!value) return 'только что';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'только что';
+
+  const minutes = Math.round((Date.now() - date.getTime()) / 60000);
+  if (minutes < 1) return 'только что';
+  if (minutes < 60) return `${minutes} мин назад`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} ч назад`;
+  return date.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
+}
+
+function renderNotifications(items) {
   const badge = document.getElementById('notificationBadge');
   const list = document.getElementById('notificationList');
+  if (!badge || !list) return;
 
-  if (notifications.length > 0) {
-    badge.textContent = notifications.length;
+  const unread = items.filter((item) => !item.read).length;
+  if (unread > 0) {
+    badge.textContent = unread > 9 ? '9+' : String(unread);
     badge.style.display = 'flex';
-
-    list.innerHTML = notifications.map(n => `
-      <div class="notification-item">
-        <div class="notification-icon">${n.type === 'article' ? '📄' : '📅'}</div>
-        <div class="notification-content">
-          <p class="notification-text">${escapeHtml(n.text)}</p>
-          <span class="notification-time">${n.time}</span>
-        </div>
-      </div>
-    `).join('');
   } else {
     badge.style.display = 'none';
-    list.innerHTML = '<p class="empty-notifications">Нет новых уведомлений</p>';
   }
+
+  if (!items.length) {
+    list.innerHTML = '<p class="empty-notifications">Нет новых уведомлений</p>';
+    return;
+  }
+
+  list.innerHTML = items.map((item) => `
+    <div class="notification-item${item.read ? ' read' : ''}">
+      <div class="notification-icon">${NOTIFICATION_ICONS[item.type] || '🔔'}</div>
+      <div class="notification-content">
+        <p class="notification-text">${escapeHtml(item.text)}</p>
+        <span class="notification-time">${escapeHtml(notificationTime(item.time))}</span>
+      </div>
+    </div>
+  `).join('');
+}
+
+// Открыли список — значит прочитали: гасим счётчик, но записи не теряем.
+function markNotificationsRead() {
+  if (notificationsUserId === null) return;
+  const state = loadNotificationState(notificationsUserId);
+  if (!state.items.some((item) => !item.read)) return;
+
+  state.items = state.items.map((item) => ({ ...item, read: true }));
+  saveNotificationState(notificationsUserId, state);
+  renderNotifications(state.items);
 }
 
 // Обработчик для колокольчика
@@ -533,7 +739,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
 function toggleNotifications() {
   const dropdown = document.getElementById('notificationDropdown');
-  dropdown.classList.toggle('hidden');
+  const isOpen = !dropdown.classList.toggle('hidden');
+  if (isOpen) markNotificationsRead();
 }
 
 function closeNotifications() {
@@ -542,8 +749,14 @@ function closeNotifications() {
 }
 
 function clearNotifications() {
-  localStorage.removeItem('notifications');
-  loadNotifications();
+  if (notificationsUserId !== null) {
+    const state = loadNotificationState(notificationsUserId);
+    // Чистим только список: «увиденное» оставляем, иначе очистка тут же
+    // породила бы те же уведомления заново при следующей загрузке.
+    state.items = [];
+    saveNotificationState(notificationsUserId, state);
+  }
+  renderNotifications([]);
   closeNotifications();
 }
 
