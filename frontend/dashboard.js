@@ -638,6 +638,20 @@ async function saveProfile(e) {
 // в атрибут строкой, ломаются на кавычках в кличке и открывают инъекцию JS.
 let dogsById = new Map();
 
+// Состояние фотографии в открытой форме собаки:
+//   file    — выбран новый файл (загрузим после сохранения данных собаки);
+//   remove  — пользователь убрал уже загруженное фото (удалим на сервере);
+//   current — имя файла на сервере (для превью и решения об удалении).
+let dogPhotoState = { file: null, remove: false, current: null };
+
+const DOG_PHOTO_MAX_BYTES = 5 * 1024 * 1024;
+const DOG_PHOTO_DIR = '/uploads/dogs';
+
+function dogPhotoUrl(filename) {
+  // encodeURIComponent: имя приходит от сервера, но чужой ввод в URL не пускаем.
+  return `${DOG_PHOTO_DIR}/${encodeURIComponent(filename)}`;
+}
+
 async function loadDogs() {
   const section = document.getElementById('dogsSection');
   const list = document.getElementById('dogsList');
@@ -663,6 +677,9 @@ async function loadDogs() {
 
     list.innerHTML = dogs.map(dog => `
       <div class="dog-card">
+        ${dog.photo
+          ? `<div class="dog-card-photo"><img src="${dogPhotoUrl(dog.photo)}" alt="Фото собаки ${escapeHtml(dog.name)}"></div>`
+          : '<div class="dog-card-photo dog-card-photo-empty">🐕</div>'}
         <div class="dog-card-info">
           <h3 class="dog-card-name">${escapeHtml(dog.name)}</h3>
           <p class="dog-card-breed">${escapeHtml(dog.breed)}</p>
@@ -693,12 +710,14 @@ function openAddDogModal() {
   document.getElementById('dogBreed').value = '';
   document.getElementById('dogAge').value = '';
   document.getElementById('dogMessage').textContent = '';
+  resetDogPhotoState(null);
   document.getElementById('dogModal').classList.remove('hidden');
 }
 
 function closeDogModal() {
   document.getElementById('dogModal').classList.add('hidden');
   document.getElementById('dogMessage').textContent = '';
+  resetDogPhotoState(null);
 }
 
 function openEditDogModal(id) {
@@ -711,7 +730,109 @@ function openEditDogModal(id) {
   document.getElementById('dogBreed').value = dog.breed;
   document.getElementById('dogAge').value = dog.age;
   document.getElementById('dogMessage').textContent = '';
+  resetDogPhotoState(dog.photo || null);
   document.getElementById('dogModal').classList.remove('hidden');
+}
+
+// ===== Фото собаки =====
+
+// Сбрасывает состояние формы фото под конкретную собаку (photo — имя файла
+// на сервере или null) и перерисовывает превью.
+function resetDogPhotoState(photo) {
+  dogPhotoState = { file: null, remove: false, current: photo || null };
+  const input = document.getElementById('dogPhotoInput');
+  if (input) input.value = '';
+  renderDogPhotoPreview();
+}
+
+function renderDogPhotoPreview() {
+  const preview = document.getElementById('dogPhotoPreview');
+  const removeBtn = document.getElementById('dogPhotoRemoveBtn');
+  if (!preview || !removeBtn) return;
+
+  const hasPhoto = !!(dogPhotoState.file || (dogPhotoState.current && !dogPhotoState.remove));
+  removeBtn.classList.toggle('hidden', !hasPhoto);
+
+  if (dogPhotoState.file) {
+    // FileReader, а не URL.createObjectURL: так не нужно помнить про revoke
+    // и файл не удерживается в памяти после закрытия формы.
+    const reader = new FileReader();
+    reader.onload = () => {
+      preview.innerHTML = `<img src="${reader.result}" alt="Новое фото собаки">`;
+    };
+    reader.readAsDataURL(dogPhotoState.file);
+  } else if (dogPhotoState.current && !dogPhotoState.remove) {
+    preview.innerHTML = `<img src="${dogPhotoUrl(dogPhotoState.current)}" alt="Фото собаки">`;
+  } else {
+    preview.innerHTML = '<span class="dog-photo-placeholder">🐕</span>';
+  }
+}
+
+// Выбор файла в форме: проверяем тип и размер на клиенте, чтобы не гонять
+// заведомо негодный файл на сервер (сервер проверяет это же повторно).
+function previewDogPhoto(input) {
+  const file = input.files && input.files[0];
+  if (!file) return;
+
+  if (!file.type || !file.type.startsWith('image/')) {
+    showToast('Выберите файл изображения', 'error');
+    input.value = '';
+    return;
+  }
+  if (file.size > DOG_PHOTO_MAX_BYTES) {
+    showToast('Максимальный размер фото: 5 МБ', 'error');
+    input.value = '';
+    return;
+  }
+
+  dogPhotoState.file = file;
+  dogPhotoState.remove = false;
+  renderDogPhotoPreview();
+}
+
+function removeDogPhotoSelection() {
+  dogPhotoState.file = null;
+  // Фото уже на сервере — удалим его при сохранении. Для новой собаки просто
+  // очищаем выбранный файл.
+  dogPhotoState.remove = !!dogPhotoState.current;
+  const input = document.getElementById('dogPhotoInput');
+  if (input) input.value = '';
+  renderDogPhotoPreview();
+}
+
+// Отправляет фото после сохранения данных собаки. Возвращает текст ошибки или
+// null. Отдельный запрос нужен потому, что для новой собаки id известен
+// только из ответа POST /me/dogs.
+async function saveDogPhoto(dogId) {
+  try {
+    if (dogPhotoState.file) {
+      const formData = new FormData();
+      formData.append('file', dogPhotoState.file);
+      const response = await fetch(`${API_BASE}/users/me/dogs/${dogId}/photo`, {
+        method: 'POST',
+        credentials: 'include',
+        body: formData,
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        return errorText(data, 'Не удалось загрузить фото собаки');
+      }
+      return null;
+    }
+
+    if (dogPhotoState.remove) {
+      const response = await fetch(`${API_BASE}/users/me/dogs/${dogId}/photo`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        return 'Не удалось удалить фото собаки';
+      }
+    }
+    return null;
+  } catch (err) {
+    return 'Ошибка сети при сохранении фото';
+  }
 }
 
 async function saveDog(e) {
@@ -749,9 +870,20 @@ async function saveDog(e) {
       return;
     }
 
+    const savedDog = await response.json();
+
+    // Собака уже сохранена; фото отправляем вторым запросом. Ошибка фото не
+    // откатывает данные, но пользователь о ней узнаёт.
+    const photoError = await saveDogPhoto(savedDog.id);
+
     btn.textContent = 'Сохранить';
     btn.disabled = false;
     closeDogModal();
+    if (photoError) {
+      showToast(photoError, 'error');
+    } else {
+      showToast(isEdit ? 'Собака обновлена' : 'Собака добавлена', 'success');
+    }
     loadDogs();
   } catch (err) {
     msgEl.textContent = 'Ошибка сети';
