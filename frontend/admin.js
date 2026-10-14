@@ -572,6 +572,18 @@ let exercisesByIdCache = new Map();
 let coursesByIdCache = new Map();
 let enrollCourseId = null;
 
+// Медиа упражнения приходит «отложенно»: секция/упражнение сначала сохраняются
+// (нужен id), и только потом грузится выбранный файл. Так медиа работает и у
+// только что созданного упражнения, а не теряется до перезагрузки страницы.
+const EXERCISE_MEDIA_DIR = '/uploads/exercises';
+const EXERCISE_MEDIA_MAX_BYTES = 25 * 1024 * 1024;
+let exerciseMediaState = { file: null, remove: false, current: null, type: 'image', objectUrl: null };
+
+function exerciseMediaUrl(filename) {
+  // Имя приходит от сервера, но чужой ввод в URL не пускаем.
+  return `${EXERCISE_MEDIA_DIR}/${encodeURIComponent(filename)}`;
+}
+
 async function loadCourses() {
   const listEl = document.getElementById('coursesList');
   showListLoader(listEl);
@@ -809,11 +821,16 @@ function renderCourseSections(container, course) {
               : s.exercises.map((e, j) => `
                 <div class="exercise-row">
                   <span class="exercise-index">${j + 1}.</span>
+                  ${e.media ? `<span class="exercise-thumb">${e.media_type === 'video'
+                    ? `<video class="exercise-thumb-media" src="${exerciseMediaUrl(e.media)}" muted preload="metadata"></video>`
+                    : `<img class="exercise-thumb-media" src="${exerciseMediaUrl(e.media)}" alt="" loading="lazy">`}</span>` : ''}
                   <span class="exercise-title">${escapeHtml(e.title)}</span>
                   ${e.repetitions ? `<span class="exercise-meta">${escapeHtml(e.repetitions)}</span>` : ''}
                   ${e.duration_minutes ? `<span class="exercise-meta">${e.duration_minutes} мин</span>` : ''}
+                  ${e.media ? `<span class="exercise-media-badge">${e.media_type === 'video' ? 'видео' : 'фото'}</span>` : ''}
                   <span class="exercise-actions">
                     <button class="btn-small btn-edit" title="Изменить" onclick="openExerciseModal(${s.id}, ${e.id})">✎</button>
+                    ${e.media ? `<button class="btn-small btn-secondary" title="Убрать медиа" onclick="deleteExerciseMedia(${e.id})">🖼✕</button>` : ''}
                     <button class="btn-small btn-delete" title="Удалить" onclick="deleteExercise(${e.id})">✕</button>
                   </span>
                 </div>
@@ -929,11 +946,115 @@ function openExerciseModal(sectionId, exerciseId) {
   document.getElementById('exerciseOrder').value = exercise ? exercise.order_index : '';
   document.getElementById('exerciseMessage').textContent = '';
   document.getElementById('exerciseMessage').className = 'message';
+  resetExerciseMediaState(exercise);
   document.getElementById('exerciseModal').classList.remove('hidden');
 }
 
 function closeExerciseModal() {
   document.getElementById('exerciseModal').classList.add('hidden');
+  releaseExerciseMediaUrl();
+}
+
+// --- Медиа упражнения (превью и отложенная загрузка) ---
+
+function releaseExerciseMediaUrl() {
+  if (exerciseMediaState.objectUrl) {
+    URL.revokeObjectURL(exerciseMediaState.objectUrl);
+    exerciseMediaState.objectUrl = null;
+  }
+}
+
+function resetExerciseMediaState(exercise) {
+  releaseExerciseMediaUrl();
+  exerciseMediaState = {
+    file: null,
+    remove: false,
+    current: exercise && exercise.media ? exercise.media : null,
+    type: exercise && exercise.media_type ? exercise.media_type : 'image',
+    objectUrl: null,
+  };
+  const input = document.getElementById('exerciseMediaInput');
+  if (input) input.value = '';
+  renderExerciseMediaPreview();
+}
+
+function renderExerciseMediaPreview() {
+  const preview = document.getElementById('exerciseMediaPreview');
+  const removeBtn = document.getElementById('exerciseMediaRemoveBtn');
+  if (!preview) return;
+
+  const { file, remove, current, type, objectUrl } = exerciseMediaState;
+  if (remove || (!file && !current)) {
+    preview.innerHTML = '<span class="exercise-media-placeholder">🎬</span>';
+    if (removeBtn) removeBtn.classList.add('hidden');
+    return;
+  }
+
+  const kind = file ? (file.type.startsWith('video') ? 'video' : 'image') : type;
+  const src = file ? objectUrl : exerciseMediaUrl(current);
+  preview.innerHTML = kind === 'video'
+    ? `<video class="exercise-media-preview-media" src="${src}" controls preload="metadata"></video>`
+    : `<img class="exercise-media-preview-media" src="${src}" alt="Медиа упражнения">`;
+  if (removeBtn) removeBtn.classList.remove('hidden');
+}
+
+function previewExerciseMedia(input) {
+  const file = input.files && input.files[0];
+  if (!file) return;
+  if (file.size > EXERCISE_MEDIA_MAX_BYTES) {
+    showMessage('exerciseMessage', 'Файл больше 25 МБ', 'error');
+    input.value = '';
+    return;
+  }
+  releaseExerciseMediaUrl();
+  exerciseMediaState.file = file;
+  exerciseMediaState.remove = false;
+  exerciseMediaState.objectUrl = URL.createObjectURL(file);
+  renderExerciseMediaPreview();
+}
+
+function removeExerciseMediaSelection() {
+  releaseExerciseMediaUrl();
+  exerciseMediaState.file = null;
+  // «Убрать» у уже загруженного медиа — это запрос на удаление на сервере.
+  exerciseMediaState.remove = !!exerciseMediaState.current;
+  const input = document.getElementById('exerciseMediaInput');
+  if (input) input.value = '';
+  renderExerciseMediaPreview();
+}
+
+async function uploadExerciseMedia(exerciseId) {
+  const form = new FormData();
+  form.append('file', exerciseMediaState.file);
+  const response = await fetch(`${API_BASE}/admin/exercises/${exerciseId}/media`, {
+    method: 'POST',
+    credentials: 'include',
+    body: form,
+  });
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(errorText(data, 'Не удалось загрузить медиа'));
+  }
+  return response.json();
+}
+
+async function deleteExerciseMedia(exerciseId) {
+  try {
+    const response = await fetch(`${API_BASE}/admin/exercises/${exerciseId}/media`, {
+      method: 'DELETE',
+      credentials: 'include',
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      showMessage('courseMessage', errorText(data, 'Не удалось убрать медиа'), 'error');
+      return;
+    }
+    showMessage('courseMessage', 'Медиа упражнения удалено', 'success');
+    await loadCourses();
+  } catch (err) {
+    showMessage('courseMessage', 'Ошибка сети', 'error');
+    console.error(err);
+  }
 }
 
 async function saveExercise(e) {
@@ -978,6 +1099,26 @@ async function saveExercise(e) {
     });
 
     if (response.ok) {
+      const saved = await response.json().catch(() => null);
+      const savedId = saved ? saved.id : (exerciseId ? parseInt(exerciseId, 10) : null);
+      // Запоминаем id: если загрузка медиа упадёт, повторное «Сохранить»
+      // обновит это упражнение, а не создаст дубликат.
+      if (savedId) document.getElementById('exerciseId').value = savedId;
+
+      if (savedId && exerciseMediaState.file) {
+        try {
+          await uploadExerciseMedia(savedId);
+        } catch (err) {
+          showMessage('exerciseMessage', err.message, 'error');
+          return;   // модалку не закрываем — можно повторить загрузку
+        }
+      } else if (savedId && exerciseMediaState.remove && exerciseMediaState.current) {
+        await fetch(`${API_BASE}/admin/exercises/${savedId}/media`, {
+          method: 'DELETE',
+          credentials: 'include',
+        });
+      }
+
       closeExerciseModal();
       await loadCourses();
     } else {

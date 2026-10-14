@@ -2411,3 +2411,252 @@ body::before {
   border-radius: 4px;
   padding: 1px 6px;
 }
+
+/* ===== Курс: статистика, упражнения, таймер и дневник (кабинет) ===== */
+.course-stats-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.course-stats-bar:empty {
+  display: none;
+}
+
+.course-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 92px;
+  padding: 10px 14px;
+  background-color: #25282c;
+  border: 1px solid #2e3238;
+  border-radius: 10px;
+}
+
+.course-stat-value {
+  font-size: 18px;
+  font-weight: 600;
+  color: #e5a92e;
+}
+
+.course-stat-label {
+  font-size: 11px;
+  color: #8a8f98;
+}
+
+.course-section-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 12px 0;
+}
+
+/* Перебиваем базовый .course-exercises li: упражнение — это колонка,
+   а не строка «заголовок · мета». */
+.course-exercises li.course-exercise {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  padding: 12px 0;
+}
+
+.course-exercise-check {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.course-exercise-check input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: #e5a92e;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.course-exercise.done .course-exercise-title {
+  color: #7bc47f;
+  text-decoration: line-through;
+  text-decoration-color: rgba(123, 196, 127, 0.5);
+}
+
+/* Описание упражнения и медиа — на всю ширину строки. */
+.course-exercise .course-exercise-desc {
+  flex-basis: auto;
+}
+
+.exercise-media-wrap {
+  margin: 2px 0;
+}
+
+.exercise-media {
+  display: block;
+  max-width: 100%;
+  max-height: 320px;
+  border-radius: 10px;
+  border: 1px solid #2e3238;
+  background-color: #1b1d20;
+}
+
+.exercise-timer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.exercise-timer-value {
+  font-variant-numeric: tabular-nums;
+  font-size: 15px;
+  color: #8a8f98;
+  min-width: 58px;
+}
+
+.exercise-timer-value.running {
+  color: #e5a92e;
+  font-weight: 600;
+}
+
+.exercise-timer-saved {
+  font-size: 12px;
+  color: #7bc47f;
+}
+
+.section-diary {
+  background-color: #1f2226;
+  border: 1px solid #2e3238;
+  border-radius: 10px;
+  padding: 12px;
+  margin: 0 0 12px 0;
+}
+
+.section-diary-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #b0b4bb;
+  margin: 0 0 10px 0;
+}
+
+.section-diary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.diary-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: #8a8f98;
+}
+
+.diary-field input,
+.diary-field select,
+.diary-field textarea {
+  width: 100%;
+  box-sizing: border-box;
+  background-color: #23262a;
+  border: 1px solid #2e3238;
+  border-radius: 8px;
+  padding: 8px 10px;
+  color: #e0e0e0;
+  font-size: 13px;
+  font-family: inherit;
+}
+
+.diary-field textarea {
+  resize: vertical;
+}
+
+.diary-field input:focus,
+.diary-field select:focus,
+.diary-field textarea:focus {
+  outline: none;
+  border-color: #e5a92e;
+}
+
+.section-diary-hint {
+  min-height: 16px;
+  font-size: 12px;
+}
+
+.section-diary-hint.ok { color: #7bc47f; }
+.section-diary-hint.error { color: #e74c3c; }
+
+/* ===== Админка: медиа упражнения ===== */
+.exercise-thumb {
+  flex-shrink: 0;
+  display: inline-flex;
+}
+
+.exercise-thumb-media {
+  width: 40px;
+  height: 40px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid #2e3238;
+  background-color: #1b1d20;
+}
+
+.exercise-media-badge {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #8a8f98;
+  border: 1px solid #2e3238;
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+
+.exercise-media-field {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  margin-top: 6px;
+}
+
+.exercise-media-preview {
+  flex-shrink: 0;
+  width: 120px;
+  height: 90px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #23262a;
+  border: 1px solid #2e3238;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.exercise-media-preview-media {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background-color: #1b1d20;
+}
+
+.exercise-media-placeholder {
+  font-size: 28px;
+  opacity: 0.6;
+}
+
+.exercise-media-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.exercise-media-hint {
+  font-size: 12px;
+  color: #8a8f98;
+  margin: 0;
+  line-height: 1.5;
+}

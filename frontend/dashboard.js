@@ -668,12 +668,14 @@ async function loadDogs() {
     const dogs = await response.json();
     section.classList.remove('hidden');
 
+    // Карта собак нужна селекту «с какой собакой гуляли» в курсе: обновляем
+    // её всегда, в том числе когда собак нет (пустая карта — тоже ответ).
+    dogsById = new Map(dogs.map(dog => [dog.id, dog]));
+
     if (dogs.length === 0) {
       list.innerHTML = '<p class="empty-text">У вас пока нет собак. Добавьте первую!</p>';
       return;
     }
-
-    dogsById = new Map(dogs.map(dog => [dog.id, dog]));
 
     list.innerHTML = dogs.map(dog => `
       <div class="dog-card">
@@ -916,8 +918,41 @@ async function deleteDog(dogId) {
 
 // ===== Курс дрессировки =====
 // Курс → секции (1 секция = 1 прогулка) → упражнения. Пользователь отмечает
-// пройденные прогулки; сервер считает прогресс и отдаёт его в /courses.
+// каждое упражнение (в том числе по таймеру), выбирает собаку и заполняет
+// дневник прогулки; сервер считает прогресс по упражнениям и отдаёт его
+// в /courses, а сводную статистику — в /courses/stats.
 let currentCourseId = null;
+
+// Идущие таймеры упражнений: id упражнения → { startedAt, seconds, intervalId }.
+// Состояние держим вне DOM: перерисовка модалки не должна сбивать отсчёт.
+const exerciseTimers = new Map();
+
+const EXERCISE_MEDIA_DIR = '/uploads/exercises';
+
+function exerciseMediaUrl(filename) {
+  // Имя файла приходит от сервера, но в URL лишний ввод не пускаем.
+  return `${EXERCISE_MEDIA_DIR}/${encodeURIComponent(filename)}`;
+}
+
+// «90» → «01:30» — счётчик во время отсчёта.
+function formatClock(totalSeconds) {
+  const seconds = Math.max(0, Math.floor(totalSeconds));
+  const minutes = Math.floor(seconds / 60);
+  return `${String(minutes).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
+}
+
+// «3750» → «1 ч 02 мин» — уже отработанное время для бейджа.
+function formatDuration(totalSeconds) {
+  const seconds = Math.max(0, Math.floor(totalSeconds));
+  const minutes = Math.floor(seconds / 60);
+  if (minutes >= 60) {
+    return `${Math.floor(minutes / 60)} ч ${String(minutes % 60).padStart(2, '0')} мин`;
+  }
+  if (minutes >= 1) {
+    return `${minutes} мин ${String(seconds % 60).padStart(2, '0')} с`;
+  }
+  return `${seconds} с`;
+}
 
 function renderCourses(courses) {
   let container = document.getElementById('coursesContainer');
@@ -930,23 +965,59 @@ function renderCourses(courses) {
 
   container.innerHTML = `
     <h2 class="section-title">Курс дрессировки</h2>
+    <div id="courseStatsBar" class="course-stats-bar"></div>
     ${courses.length === 0
       ? '<p class="empty-text">Вам пока не назначен ни один курс. Доступ открывает администратор</p>'
-      : courses.map(c => {
-          const percent = c.sections_count ? Math.round((c.completed_count / c.sections_count) * 100) : 0;
-          return `
-            <div class="content-card course-card" onclick="showCourseDetail(${c.id})">
-              <h3 class="content-card-title">${escapeHtml(c.title)}</h3>
-              <p class="content-card-excerpt">${escapeHtml(c.description || 'Без описания')}</p>
-              <div class="course-card-progress">
-                <div class="course-progress-bar"><div class="course-progress-fill" style="width: ${percent}%"></div></div>
-                <span class="course-progress-text">Пройдено ${c.completed_count} из ${c.sections_count} прогулок</span>
-              </div>
+      : courses.map(c => `
+          <div class="content-card course-card" onclick="showCourseDetail(${c.id})">
+            <h3 class="content-card-title">${escapeHtml(c.title)}</h3>
+            <p class="content-card-excerpt">${escapeHtml(c.description || 'Без описания')}</p>
+            <div class="course-card-progress">
+              <div class="course-progress-bar"><div class="course-progress-fill" style="width: ${c.percent}%"></div></div>
+              <span class="course-progress-text">${courseProgressText(c)}</span>
             </div>
-          `;
-        }).join('')
+          </div>
+        `).join('')
     }
   `;
+
+  // Блок статистики рендерится отдельно и асинхронно (не блокирует карточки).
+  renderCourseStats();
+}
+
+function courseProgressText(course) {
+  const walks = `прогулок пройдено ${course.completed_count} из ${course.sections_count}`;
+  if (course.exercises_count) {
+    return `Выполнено ${course.completed_exercises_count} из ${course.exercises_count} упражнений · ${walks}`;
+  }
+  return `Пройдено ${course.completed_count} из ${course.sections_count} прогулок`;
+}
+
+async function renderCourseStats() {
+  const bar = document.getElementById('courseStatsBar');
+  if (!bar) return;
+  try {
+    const response = await fetch(`${API_BASE}/courses/stats`, { credentials: 'include', cache: 'no-store' });
+    if (!response.ok) { bar.innerHTML = ''; return; }
+    const stats = await response.json();
+    if (!stats.total_walks && !stats.completed_exercises) { bar.innerHTML = ''; return; }
+    const cards = [
+      { value: stats.total_walks, label: 'прогулок всего' },
+      { value: stats.walks_this_week, label: 'за неделю' },
+      { value: `${stats.current_streak} 🔥`, label: 'дней подряд' },
+      { value: stats.completed_exercises, label: 'упражнений' },
+    ];
+    if (stats.total_minutes) cards.push({ value: stats.total_minutes, label: 'минут на прогулках' });
+    if (stats.average_rating) cards.push({ value: stats.average_rating, label: 'средняя оценка' });
+    bar.innerHTML = cards.map(card => `
+      <div class="course-stat">
+        <span class="course-stat-value">${card.value}</span>
+        <span class="course-stat-label">${card.label}</span>
+      </div>
+    `).join('');
+  } catch (err) {
+    console.error('Ошибка загрузки статистики:', err);
+  }
 }
 
 async function loadCourses() {
@@ -994,10 +1065,20 @@ async function refreshCourseModal() {
   }
 }
 
+// Процент курса считаем по упражнениям (как и сервер): «3 из 5 упражнений» —
+// это 60%, даже если прогулка ещё не зачтена целиком.
+function coursePercent(course) {
+  const total = course.sections.reduce((sum, s) => sum + s.total_exercises, 0);
+  const done = course.sections.reduce((sum, s) => sum + s.completed_exercises, 0);
+  if (total) return Math.round((done / total) * 100);
+  const doneSections = course.sections.filter(s => s.completed).length;
+  return course.sections.length ? Math.round((doneSections / course.sections.length) * 100) : 0;
+}
+
 function renderCourseModal(course) {
   const total = course.sections.length;
   const done = course.sections.filter(s => s.completed).length;
-  const percent = total ? Math.round((done / total) * 100) : 0;
+  const percent = coursePercent(course);
 
   document.getElementById('courseModalTitle').textContent = course.title;
   document.getElementById('courseModalProgress').textContent = `Пройдено ${done} из ${total} прогулок`;
@@ -1008,33 +1089,221 @@ function renderCourseModal(course) {
     <div class="course-progress-bar course-progress-bar-lg"><div class="course-progress-fill" style="width: ${percent}%"></div></div>
     ${total === 0
       ? '<p class="empty-text">В курсе пока нет секций</p>'
-      : course.sections.map((s, i) => `
-        <div class="course-section-item ${s.completed ? 'completed' : ''}">
-          <div class="course-section-head">
-            <h3>${i + 1}. ${escapeHtml(s.title)}</h3>
-            ${s.completed ? '<span class="course-status-badge">✓ Пройдено</span>' : ''}
-          </div>
-          ${s.description ? `<p class="course-section-desc">${escapeHtml(s.description).replace(/\n/g, '<br>')}</p>` : ''}
-          ${s.exercises.length
-            ? `<ul class="course-exercises">${s.exercises.map(e => {
-                const meta = [e.repetitions, e.duration_minutes ? e.duration_minutes + ' мин' : '']
-                  .filter(Boolean).join(' · ');
-                return `
-                  <li>
-                    <span class="course-exercise-title">${escapeHtml(e.title)}</span>
-                    ${meta ? `<span class="course-exercise-meta">${escapeHtml(meta)}</span>` : ''}
-                    ${e.description ? `<span class="course-exercise-desc">${escapeHtml(e.description).replace(/\n/g, '<br>')}</span>` : ''}
-                  </li>
-                `;
-              }).join('')}</ul>`
-            : '<p class="empty-text">Упражнений нет</p>'}
-          <button class="btn-small ${s.completed ? 'btn-secondary' : 'btn-primary'}"
-                  onclick="toggleSectionComplete(${s.id}, ${s.completed})">
-            ${s.completed ? 'Пройти заново' : 'Отметить пройденной'}
-          </button>
-        </div>
-      `).join('')}
+      : course.sections.map((s, i) => sectionItemHtml(s, i)).join('')}
   `;
+}
+
+function sectionItemHtml(section, index) {
+  return `
+    <div class="course-section-item ${section.completed ? 'completed' : ''}">
+      <div class="course-section-head">
+        <h3>${index + 1}. ${escapeHtml(section.title)}</h3>
+        ${section.completed ? '<span class="course-status-badge">✓ Пройдено</span>' : ''}
+      </div>
+      ${section.description ? `<p class="course-section-desc">${escapeHtml(section.description).replace(/\n/g, '<br>')}</p>` : ''}
+      <div class="course-section-progress">
+        <div class="course-progress-bar"><div class="course-progress-fill" style="width: ${section.percent}%"></div></div>
+        <span class="course-progress-text">${section.total_exercises
+          ? `Отработано ${section.completed_exercises} из ${section.total_exercises} упражнений`
+          : 'Прогулка без упражнений'}</span>
+      </div>
+      ${section.exercises.length
+        ? `<ul class="course-exercises">${section.exercises.map(e => exerciseItemHtml(e)).join('')}</ul>`
+        : '<p class="empty-text">Упражнений нет</p>'}
+      ${sectionDiaryHtml(section)}
+      <button class="btn-small ${section.completed ? 'btn-secondary' : 'btn-primary'}"
+              onclick="toggleSectionComplete(${section.id}, ${section.completed})">
+        ${section.completed ? 'Пройти заново' : 'Отметить пройденной'}
+      </button>
+    </div>
+  `;
+}
+
+function exerciseItemHtml(exercise) {
+  const meta = [exercise.repetitions, exercise.duration_minutes ? exercise.duration_minutes + ' мин' : '']
+    .filter(Boolean).join(' · ');
+  const timer = exerciseTimers.get(exercise.id);
+  const elapsed = timer ? timer.seconds : 0;
+  const saved = exercise.actual_seconds || 0;
+
+  return `
+    <li class="course-exercise ${exercise.completed ? 'done' : ''}">
+      <label class="course-exercise-check">
+        <input type="checkbox" ${exercise.completed ? 'checked' : ''}
+               onchange="toggleExercise(${exercise.id}, this.checked)">
+        <span class="course-exercise-title">${escapeHtml(exercise.title)}</span>
+        ${meta ? `<span class="course-exercise-meta">${escapeHtml(meta)}</span>` : ''}
+      </label>
+      ${exercise.description ? `<span class="course-exercise-desc">${escapeHtml(exercise.description).replace(/\n/g, '<br>')}</span>` : ''}
+      ${exercise.media ? `<div class="exercise-media-wrap">${exercise.media_type === 'video'
+        ? `<video class="exercise-media" src="${exerciseMediaUrl(exercise.media)}" controls preload="metadata"></video>`
+        : `<img class="exercise-media" src="${exerciseMediaUrl(exercise.media)}" alt="${escapeHtml(exercise.title)}" loading="lazy">`}</div>` : ''}
+      <div class="exercise-timer">
+        <button type="button" class="btn-small ${timer ? 'btn-delete' : 'btn-secondary'}"
+                id="exerciseTimerBtn-${exercise.id}" onclick="toggleExerciseTimer(${exercise.id})">
+          ${timer ? '■ Стоп' : '▶ Таймер'}
+        </button>
+        <span class="exercise-timer-value ${timer ? 'running' : ''}" id="exerciseTimer-${exercise.id}">${formatClock(elapsed)}</span>
+        ${saved ? `<span class="exercise-timer-saved">отработано: ${formatDuration(saved)}</span>` : ''}
+      </div>
+    </li>
+  `;
+}
+
+function sectionDiaryHtml(section) {
+  const dogOptions = ['<option value="">— не выбрана —</option>']
+    .concat(Array.from(dogsById.values()).map(dog =>
+      `<option value="${dog.id}" ${section.dog_id === dog.id ? 'selected' : ''}>${escapeHtml(dog.name)}</option>`))
+    .join('');
+  const ratingOptions = ['<option value="">—</option>']
+    .concat([1, 2, 3, 4, 5].map(n =>
+      `<option value="${n}" ${section.rating === n ? 'selected' : ''}>${n}</option>`))
+    .join('');
+
+  return `
+    <div class="section-diary">
+      <h4 class="section-diary-title">Дневник прогулки</h4>
+      <div class="section-diary-grid">
+        <label class="diary-field">
+          <span>Собака</span>
+          <select onchange="saveSectionDiary(${section.id}, { dog_id: this.value === '' ? null : parseInt(this.value, 10) })">${dogOptions}</select>
+        </label>
+        <label class="diary-field">
+          <span>Оценка прогулки</span>
+          <select onchange="saveSectionDiary(${section.id}, { rating: this.value === '' ? null : parseInt(this.value, 10) })">${ratingOptions}</select>
+        </label>
+        <label class="diary-field">
+          <span>Погода</span>
+          <input type="text" maxlength="50" placeholder="Например: солнечно"
+                 value="${escapeHtml(section.weather || '')}"
+                 onchange="saveSectionDiary(${section.id}, { weather: this.value })">
+        </label>
+        <label class="diary-field">
+          <span>Фактически, минут</span>
+          <input type="number" min="0" max="1440" value="${section.actual_minutes || ''}" placeholder="0"
+                 onchange="saveSectionDiary(${section.id}, { actual_minutes: this.value === '' ? 0 : parseInt(this.value, 10) })">
+        </label>
+      </div>
+      <label class="diary-field diary-field-wide">
+        <span>Заметка</span>
+        <textarea rows="2" maxlength="2000" placeholder="Как прошла прогулка"
+                  onchange="saveSectionDiary(${section.id}, { note: this.value })">${escapeHtml(section.note || '')}</textarea>
+      </label>
+      <div class="section-diary-hint" id="sectionDiaryHint-${section.id}"></div>
+    </div>
+  `;
+}
+
+// Дневник сохраняем без перерисовки модалки: иначе при вводе заметки слетал бы
+// фокус. После успеха показываем «Сохранено» и обновляем статистику.
+async function saveSectionDiary(sectionId, changes) {
+  const hint = document.getElementById(`sectionDiaryHint-${sectionId}`);
+  try {
+    const response = await fetch(`${API_BASE}/sections/${sectionId}/progress`, {
+      method: 'PUT',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(changes),
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      if (hint) { hint.textContent = errorText(data, 'Не удалось сохранить'); hint.className = 'section-diary-hint error'; }
+      return;
+    }
+    if (hint) { hint.textContent = 'Сохранено ✓'; hint.className = 'section-diary-hint ok'; }
+    renderCourseStats();
+  } catch (err) {
+    if (hint) { hint.textContent = 'Ошибка сети'; hint.className = 'section-diary-hint error'; }
+  }
+}
+
+async function toggleExercise(exerciseId, completed) {
+  try {
+    const options = { method: completed ? 'POST' : 'DELETE', credentials: 'include' };
+    if (completed) {
+      options.headers = { 'Content-Type': 'application/json' };
+      options.body = JSON.stringify({ actual_seconds: 0 });
+    }
+    const response = await fetch(`${API_BASE}/exercises/${exerciseId}/complete`, options);
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      showToast(errorText(data, 'Не удалось обновить упражнение'), 'error');
+      await refreshCourseModal();
+      return;
+    }
+    await refreshCourseModal();
+    loadCourses();
+    if (completed) showToast('Упражнение отработано ✓', 'success');
+  } catch (err) {
+    showToast('Ошибка сети', 'error');
+  }
+}
+
+// --- Таймер упражнения ---
+// Отсчёт идёт в браузере, серверу уходит итог в actual_seconds. Остановка
+// таймера сразу зачитывает упражнение отработанным.
+
+function setTimerButtonState(exerciseId, running, seconds) {
+  const btn = document.getElementById(`exerciseTimerBtn-${exerciseId}`);
+  const value = document.getElementById(`exerciseTimer-${exerciseId}`);
+  if (btn) {
+    btn.textContent = running ? '■ Стоп' : '▶ Таймер';
+    btn.classList.toggle('btn-delete', running);
+    btn.classList.toggle('btn-secondary', !running);
+  }
+  if (value) {
+    value.classList.toggle('running', running);
+    if (!running) value.textContent = formatClock(seconds || 0);
+  }
+}
+
+function toggleExerciseTimer(exerciseId) {
+  if (exerciseTimers.has(exerciseId)) {
+    stopExerciseTimer(exerciseId);
+    return;
+  }
+  const timer = { startedAt: Date.now(), seconds: 0, intervalId: null };
+  timer.intervalId = setInterval(() => {
+    timer.seconds = Math.floor((Date.now() - timer.startedAt) / 1000);
+    const el = document.getElementById(`exerciseTimer-${exerciseId}`);
+    if (el) el.textContent = formatClock(timer.seconds);
+  }, 1000);
+  exerciseTimers.set(exerciseId, timer);
+  setTimerButtonState(exerciseId, true, 0);
+}
+
+async function stopExerciseTimer(exerciseId) {
+  const timer = exerciseTimers.get(exerciseId);
+  if (!timer) return;
+  clearInterval(timer.intervalId);
+  exerciseTimers.delete(exerciseId);
+
+  const seconds = Math.max(timer.seconds, Math.floor((Date.now() - timer.startedAt) / 1000));
+  setTimerButtonState(exerciseId, false, seconds);
+
+  try {
+    const response = await fetch(`${API_BASE}/exercises/${exerciseId}/complete`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ actual_seconds: seconds }),
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      showToast(errorText(data, 'Не удалось сохранить время'), 'error');
+      return;
+    }
+    showToast(`Упражнение отработано за ${formatDuration(seconds)} ✓`, 'success');
+    await refreshCourseModal();
+    loadCourses();
+  } catch (err) {
+    showToast('Ошибка сети', 'error');
+  }
+}
+
+function stopAllExerciseTimers() {
+  exerciseTimers.forEach(timer => clearInterval(timer.intervalId));
+  exerciseTimers.clear();
 }
 
 async function toggleSectionComplete(sectionId, completed) {
@@ -1057,6 +1326,8 @@ async function toggleSectionComplete(sectionId, completed) {
 }
 
 function closeCourseDetail() {
+  // Незавершённые таймеры не сохраняем: закрыл модалку — отсчёт сброшен.
+  stopAllExerciseTimers();
   document.getElementById('courseModal').classList.add('hidden');
   currentCourseId = null;
 }
