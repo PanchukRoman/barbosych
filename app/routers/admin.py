@@ -17,6 +17,7 @@ from ..models import (
     Exercise,
     User,
 )
+from ..notifications import notify_all_users, notify_course_students, notify_users
 from ..schemas import (
     AdminCourseList,
     ArticleCreate,
@@ -108,6 +109,11 @@ def create_article(
         author_id=admin.id,
     )
     db.add(article)
+    # Уведомление уходит в той же транзакции, что и публикация: «статья есть, а
+    # уведомления нет» стать не может. Автор (админ) уведомление не получает.
+    notify_all_users(
+        db, "article", f"Новая статья: «{article.title}»", exclude_user_id=admin.id
+    )
     db.commit()
     db.refresh(article)
     return article
@@ -204,6 +210,9 @@ def create_event(
         author_id=admin.id,
     )
     db.add(event)
+    notify_all_users(
+        db, "event", f"Новое событие: «{event.title}»", exclude_user_id=admin.id
+    )
     db.commit()
     db.refresh(event)
     return event_read(event, registered_count=0, is_registered=False)
@@ -430,6 +439,14 @@ def create_section(
         order_index=order_index,
     )
     db.add(section)
+    # О новых материалах курса узнают только зачисленные: остальные курс всё
+    # равно не видят (доступ открывает админ).
+    notify_course_students(
+        db,
+        course_id,
+        "section",
+        f"Новая прогулка в курсе «{course.title}»: «{section.title}»",
+    )
     db.commit()
     db.refresh(section)
     return section_read(section)
@@ -504,6 +521,15 @@ def create_exercise(
         order_index=order_index,
     )
     db.add(exercise)
+    # О прогулке и упражнении сообщаем зачисленным на курс, в который они входят.
+    course = db.get(Course, section.course_id)
+    if course is not None:
+        notify_course_students(
+            db,
+            course.id,
+            "exercise",
+            f"Новое упражнение в курсе «{course.title}»: «{exercise.title}»",
+        )
     db.commit()
     db.refresh(exercise)
     return exercise
@@ -685,6 +711,9 @@ def enroll_user_to_course(
 
     enrollment = CourseEnrollment(course_id=course_id, user_id=user.id)
     db.add(enrollment)
+    # Приглашение — событие для самого пользователя: до этой строки он курса не
+    # видел вообще, поэтому уведомляем его, а не всех подряд.
+    notify_users(db, [user.id], "course", f"Вам открыт доступ к курсу «{course.title}»")
     try:
         db.commit()
     except IntegrityError:

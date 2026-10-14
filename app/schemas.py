@@ -486,3 +486,32 @@ class CourseEnrollmentCreate(BaseModel):
     """Тело POST /admin/courses/{id}/enrollments — кого зачислить на курс."""
 
     user_id: int = Field(ge=1)
+
+
+# ========================
+# Уведомления (колокольчик в кабинете)
+# ========================
+
+class NotificationRead(BaseModel):
+    """Одна запись ленты уведомлений."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    type: str
+    text: str
+    created_at: datetime
+    # NULL — ещё не прочитано; клиент по этому полю рисует «прочитанное» серым.
+    read_at: datetime | None = None
+
+
+class NotificationList(BaseModel):
+    """Лента целиком: записи (новые сверху) и число непрочитанных.
+
+    unread_count считается по ВСЕМ непрочитанным записям пользователя, а не
+    только по попавшим в items (у выдачи есть лимит) — иначе бейдж на
+    колокольчике занижал бы число.
+    """
+
+    items: list[NotificationRead] = Field(default_factory=list)
+    unread_count: int = 0

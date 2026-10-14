@@ -27,7 +27,7 @@ from .config import settings  # noqa: E402
 from .database import Base, engine  # noqa: E402
 from .deps import require_admin_page_user, require_page_user  # noqa: E402
 from .models import User  # noqa: E402
-from .routers import admin, auth, course, public, users  # noqa: E402
+from .routers import admin, auth, course, notifications, public, users  # noqa: E402
 
 logger = logging.getLogger("barbosych")
 FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
@@ -102,3 +102,4 @@ app.include_router(users.router)
 app.include_router(admin.router)
 app.include_router(public.router)
 app.include_router(course.router)
+app.include_router(notifications.router)

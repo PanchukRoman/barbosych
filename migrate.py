@@ -5,15 +5,17 @@
 1. Колонка avatar в таблице users
 2. Таблица dogs
 3. UNIQUE(user_id, event_id) в event_registrations — защита от двойной записи
-4. Таблицы курса дрессировки: courses, course_sections, exercises, section_progress
-5. Таблица course_enrollments — зачисление пользователей на курс (доступ)
-6. Колонка photo в таблице dogs — фотография собаки
-7. Таблица exercise_progress — прогресс по отдельным упражнениям
-8. Дневник прогулки в section_progress: dog_id, started_at, note, rating,
-   weather, actual_minutes; completed_at допускает NULL (прогулка начата, но
-   не завершена)
-9. Медиа к упражнению: колонки media и media_type в exercises
-10. Бэкфилл: упражнения уже зачтённых прогулок отмечаются выполненными
+4-7. Таблицы курса дрессировки: courses, course_sections, exercises, section_progress
+8. Таблица course_enrollments — зачисление пользователей на курс (доступ)
+9. Колонка photo в таблице dogs — фотография собаки
+10. Таблица exercise_progress — прогресс по отдельным упражнениям
+11. Дневник прогулки в section_progress: dog_id, started_at, note, rating,
+    weather, actual_minutes; completed_at допускает NULL (прогулка начата, но
+    не завершена)
+12. Медиа к упражнению: колонки media и media_type в exercises
+13. Бэкфилл: упражнения уже зачтённых прогулок отмечаются выполненными
+14. Таблица notifications — лента уведомлений пользователя (новые статьи,
+    события, доступ к курсу, материалы курса)
 
 Запуск из корня проекта:
   python3 migrate.py
@@ -60,6 +62,18 @@ def _has_constraint(cur, table: str, name: str) -> bool:
     """Есть ли ограничение с таким именем на таблице."""
     cur.execute(
         "SELECT 1 FROM pg_constraint WHERE conname = %s AND conrelid = %s::regclass",
+        (name, table),
+    )
+    return cur.fetchone() is not None
+
+
+def _has_index(cur, table: str, name: str) -> bool:
+    """Есть ли индекс с таким именем на таблице текущей схемы."""
+    cur.execute(
+        """
+        SELECT 1 FROM pg_indexes
+        WHERE indexname = %s AND tablename = %s AND schemaname = current_schema()
+        """,
         (name, table),
     )
     return cur.fetchone() is not None
@@ -403,6 +417,35 @@ def migrate():
             print(f"  ✓ отмечено упражнений: {cur.rowcount}")
         else:
             print("  ⚠ нужные таблицы отсутствуют — пропускаем")
+
+        # 14. Таблица notifications — лента уведомлений пользователя о новом
+        # контенте. Записи создаёт сервер в момент публикации (см.
+        # app/notifications.py), поэтому лента одинакова для всех браузеров и
+        # не теряется при очистке localStorage.
+        print("\n📋 Шаг 14: Таблица notifications...")
+        if _has_table(cur, "notifications"):
+            print("  ✓ таблица notifications уже существует")
+        else:
+            cur.execute("""
+                CREATE TABLE notifications (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER NOT NULL,
+                    type VARCHAR(20) NOT NULL,
+                    text VARCHAR(255) NOT NULL,
+                    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    read_at TIMESTAMP WITH TIME ZONE,
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                )
+            """)
+            print("  ✓ таблица notifications создана")
+
+        # Индекс под главный запрос ленты: «мои записи, новые сверху».
+        if not _has_index(cur, "notifications", "ix_notifications_user_created"):
+            cur.execute(
+                "CREATE INDEX ix_notifications_user_created "
+                "ON notifications (user_id, created_at)"
+            )
+            print("  ✓ индекс ix_notifications_user_created создан")
 
     conn.commit()
     conn.close()

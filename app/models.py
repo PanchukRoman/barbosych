@@ -4,6 +4,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -56,6 +57,11 @@ class User(Base):
     # Зачисления на курсы: доступ пользователя к прохождению. Пока строки нет —
     # курса пользователь не видит, доступ открывает админ («пригласить»).
     course_enrollments: Mapped[list["CourseEnrollment"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+    # Уведомления о новом контенте (см. Notification). Удаляются вместе с
+    # пользователем: чужая лента никому не нужна.
+    notifications: Mapped[list["Notification"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
 
@@ -342,3 +348,42 @@ class CourseEnrollment(Base):
 
     user: Mapped["User"] = relationship(back_populates="course_enrollments")
     course: Mapped["Course"] = relationship(back_populates="enrollments")
+
+
+class Notification(Base):
+    """Уведомление пользователю о новом контенте.
+
+    Запись создаётся в момент публикации: админ добавил статью или событие,
+    пользователя пригласили на курс, в курсе появилась новая прогулка или
+    упражнение. Живёт до тех пор, пока пользователь не отметит ленту
+    прочитанной или не очистит её.
+
+    Почему на сервере, а не в localStorage, как было раньше: клиентская лента
+    строилась сравнением текущих списков контента с прошлым визитом, поэтому
+    результат зависел от браузера и от того, заходил ли человек в кабинет до
+    публикации. Из-за этого у одного пользователя уведомление появлялось, а у
+    другого его не было вовсе. Серверная лента одинакова для всех и переживает
+    очистку хранилища браузера.
+    """
+
+    __tablename__ = "notifications"
+    __table_args__ = (
+        # Лента всегда читается как «мои записи, новые сверху» — под это индекс.
+        Index("ix_notifications_user_created", "user_id", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    # Вид записи задаёт иконку на клиенте: article, event, course, section,
+    # exercise. Отдельный ENUM не нужен — набор видов расширяемый.
+    type: Mapped[str] = mapped_column(String(20))
+    text: Mapped[str] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    # NULL — ещё не прочитано. Отметка ставится, когда пользователь открыл ленту.
+    read_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    user: Mapped["User"] = relationship(back_populates="notifications")
