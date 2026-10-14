@@ -1,6 +1,3 @@
-import uuid
-from pathlib import Path
-
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
 
@@ -9,84 +6,31 @@ from ..database import get_db
 from ..deps import get_current_user
 from ..models import Dog, User
 from ..schemas import DogCreate, DogRead, DogUpdate, UserRead, UserUpdate
+from ..uploads import CONTENT_TYPES, STATIC_IMAGE_SIGNATURES, read_upload, remove_upload, write_upload
 
 router = APIRouter(prefix="/users", tags=["Users"])
 
-# Разрешаем только эти форматы. Расширение НЕ берём из имени файла, которое
-# присылает клиент: там может быть .html/.svg (исполняемый в браузере код)
-# или "..." с обходом каталога. Формат определяем по содержимому файла.
-_IMAGE_SIGNATURES = (
-    ("jpg", lambda data: data.startswith(b"\xff\xd8\xff")),
-    ("png", lambda data: data.startswith(b"\x89PNG\r\n\x1a\n")),
-    ("webp", lambda data: data.startswith(b"RIFF") and data[8:12] == b"WEBP"),
-)
-IMAGE_CONTENT_TYPES = {
-    "jpg": "image/jpeg",
-    "png": "image/png",
-    "webp": "image/webp",
-}
+# Раньше правила загрузки (проверка формата по «магическим» байтам, генерация
+# имени файла, удаление старого) жили прямо здесь. Теперь они в app/uploads.py:
+# те же самые правила переиспользует загрузка медиа к упражнениям курса.
 
-
-def _detect_image_extension(data: bytes) -> str | None:
-    """Определяет формат картинки по «магическим» байтам содержимого."""
-    for extension, matches in _IMAGE_SIGNATURES:
-        if matches(data):
-            return extension
-    return None
+# Дополнительные псевдонимы оставлены для совместимости: часть кода и тестов
+# ссылается на привычные имена.
+IMAGE_CONTENT_TYPES = CONTENT_TYPES
 
 
 async def _read_image(file: UploadFile, max_bytes: int) -> tuple[bytes, str]:
-    """Читает загруженную картинку, проверяя размер и реальный формат.
-
-    Размер проверяем чтением max_bytes + 1 байт: файл в 5 ГБ не осядет в RAM.
-    """
-    contents = await file.read(max_bytes + 1)
-    if len(contents) > max_bytes:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Максимальный размер файла: {max_bytes // (1024 * 1024)}MB",
-        )
-
-    extension = _detect_image_extension(contents)
-    if extension is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Допустимые форматы: JPEG, PNG, WebP",
-        )
+    """Читает картинку, проверяя размер и реальный формат (аватары, фото собак)."""
+    contents, extension, _kind = await read_upload(file, max_bytes, STATIC_IMAGE_SIGNATURES)
     return contents, extension
 
 
-def _write_image(contents: bytes, extension: str, directory: Path) -> str:
-    """Сохраняет картинку под сгенерированным именем и возвращает имя файла.
-
-    Имя целиком наше (uuid4 + безопасное расширение из белого списка), поэтому
-    обход каталога через имя файла клиента невозможен.
-    """
-    filename = f"{uuid.uuid4().hex}.{extension}"
-    try:
-        directory.mkdir(parents=True, exist_ok=True)
-        (directory / filename).write_bytes(contents)
-    except OSError:
-        # Диск переполнен / нет прав на каталог / путь недоступен — отдаём
-        # понятный 503, а не невнятный 500 из середины хендлера.
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Хранилище для загрузок недоступно — проверьте путь UPLOAD_DIR",
-        )
-    return filename
+def _write_image(contents: bytes, extension: str, directory) -> str:
+    return write_upload(contents, extension, directory)
 
 
-def _remove_image(filename: str | None, directory: Path) -> None:
-    """Удаляет ранее сохранённый файл, если он есть и лежит внутри каталога.
-
-    basename отсекает выход из папки, а сравнение каталогов — защита от
-    случайного удаления файла по абсолютному пути из БД.
-    """
-    if not filename:
-        return
-    path = directory / filename.split("/")[-1].split("\\")[-1]
-    if path.parent.resolve() == directory.resolve() and path.is_file():
-        path.unlink(missing_ok=True)
+def _remove_image(filename: str | None, directory) -> None:
+    remove_upload(filename, directory)
 
 
 def _get_own_dog(db: Session, current_user: User, dog_id: int) -> Dog:

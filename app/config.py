@@ -39,6 +39,8 @@ class Settings(BaseSettings):
     # Тот же лимит для фотографии собаки: отдельная настройка, чтобы её можно
     # было поднять/опустить, не задевая аватары пользователей.
     MAX_DOG_PHOTO_BYTES: int = 5 * 1024 * 1024   # 5 МБ
+    # Медиа к упражнению курса может быть видео — лимит выше, чем у картинок.
+    MAX_EXERCISE_MEDIA_BYTES: int = 25 * 1024 * 1024   # 25 МБ
 
     @property
     def avatar_dir(self) -> Path:
@@ -47,6 +49,10 @@ class Settings(BaseSettings):
     @property
     def dog_photo_dir(self) -> Path:
         return Path(self.UPLOAD_DIR) / "dogs"
+
+    @property
+    def exercise_media_dir(self) -> Path:
+        return Path(self.UPLOAD_DIR) / "exercises"
 
 
 settings = Settings()  # единственный экземпляр, его импортируют все модули

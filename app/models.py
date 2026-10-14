@@ -1,6 +1,7 @@
 from datetime import datetime
 
 from sqlalchemy import (
+    CheckConstraint,
     DateTime,
     ForeignKey,
     Integer,
@@ -44,9 +45,12 @@ class User(Base):
         back_populates="owner", cascade="all, delete-orphan"
     )
     # Курсы, которые создал пользователь (на практике — админ), и его отметки
-    # о пройденных прогулках.
+    # о пройденных прогулках и отдельных упражнениях.
     courses: Mapped[list["Course"]] = relationship(back_populates="author")
     section_progress: Mapped[list["SectionProgress"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+    exercise_progress: Mapped[list["ExerciseProgress"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
     # Зачисления на курсы: доступ пользователя к прохождению. Пока строки нет —
@@ -218,21 +222,42 @@ class Exercise(Base):
     # природы (повторы, выдержка, расстояние), одним числом не описать.
     repetitions: Mapped[str] = mapped_column(String(100), default="")
     duration_minutes: Mapped[int] = mapped_column(Integer, default=0)
+    # Медиа-подсказка к упражнению (фото/GIF/видео). Хранится имя файла в
+    # каталоге settings.exercise_media_dir (uploads/exercises); URL собирает
+    # фронтенд: /uploads/exercises/<media>. media_type — «image» или «video»,
+    # чтобы клиент знал, что рисовать: <img> или <video>.
+    media: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    media_type: Mapped[str] = mapped_column(String(20), default="image")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
 
     section: Mapped["CourseSection"] = relationship(back_populates="exercises")
+    progress: Mapped[list["ExerciseProgress"]] = relationship(
+        back_populates="exercise", cascade="all, delete-orphan"
+    )
 
 
 class SectionProgress(Base):
-    """Отметка «пользователь прошёл секцию (прогулку)»."""
+    """Запись о прогулке пользователя: с какой собакой, когда и с каким итогом.
+
+    Строка появляется, когда пользователь начинает прогулку (выбрав собаку) или
+    сразу отмечает её пройденной. completed_at заполнен — прогулка зачтена.
+    Здесь же хранится дневник прогулки: заметка, оценка, погода и фактическое
+    время (упражнения отмечаются отдельно, в ExerciseProgress).
+    """
 
     __tablename__ = "section_progress"
     __table_args__ = (
         # Одну прогулку нельзя «пройти» дважды: без ограничения двойной клик
         # или два параллельных запроса создали бы дубли (как у записей на события).
         UniqueConstraint("user_id", "section_id", name="uq_section_progress_user_section"),
+        # Оценка — целое от 1 до 5; ограничение на уровне БД не даёт записать
+        # мусор в обход API.
+        CheckConstraint(
+            "rating IS NULL OR (rating >= 1 AND rating <= 5)",
+            name="ck_section_progress_rating",
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -240,12 +265,59 @@ class SectionProgress(Base):
     section_id: Mapped[int] = mapped_column(
         ForeignKey("course_sections.id", ondelete="CASCADE")
     )
+    # Какую собаку тренировали на прогулке. NULL — собаку не выбрали или удалили
+    # (при удалении собаки внешний ключ обнуляется: ON DELETE SET NULL).
+    dog_id: Mapped[int | None] = mapped_column(
+        ForeignKey("dogs.id", ondelete="SET NULL"), nullable=True
+    )
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    # NULL — прогулка начата, но не завершена (в зачёт курса не идёт).
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # --- Дневник прогулки ---
+    note: Mapped[str] = mapped_column(Text, default="")
+    rating: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    weather: Mapped[str] = mapped_column(String(50), default="")
+    actual_minutes: Mapped[int] = mapped_column(Integer, default=0)
+
+    user: Mapped["User"] = relationship(back_populates="section_progress")
+    section: Mapped["CourseSection"] = relationship(back_populates="progress")
+    dog: Mapped["Dog | None"] = relationship()
+
+
+class ExerciseProgress(Base):
+    """Отметка «упражнение отработано».
+
+    Прогресс курса считаем по упражнениям, а не только по прогулкам целиком:
+    тогда видно, что пользователь выполнил 3 из 5 упражнений прогулки, а не
+    «0 из 1 прогулки». actual_seconds хранит время работы по таймеру.
+    """
+
+    __tablename__ = "exercise_progress"
+    __table_args__ = (
+        # Одно упражнение отмечается один раз на пользователя.
+        UniqueConstraint(
+            "user_id", "exercise_id", name="uq_exercise_progress_user_exercise"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    exercise_id: Mapped[int] = mapped_column(
+        ForeignKey("exercises.id", ondelete="CASCADE")
+    )
+    # Фактически затраченное время (секунды), если упражнение запускали по
+    # таймеру. 0 — таймер не использовали.
+    actual_seconds: Mapped[int] = mapped_column(Integer, default=0)
     completed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
 
-    user: Mapped["User"] = relationship(back_populates="section_progress")
-    section: Mapped["CourseSection"] = relationship(back_populates="progress")
+    user: Mapped["User"] = relationship(back_populates="exercise_progress")
+    exercise: Mapped["Exercise"] = relationship(back_populates="progress")
 
 
 class CourseEnrollment(Base):

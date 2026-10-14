@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from ..config import settings
 from ..database import get_db
 from ..deps import require_admin
 from ..loaders import COURSE_DETAIL_LOADS, EVENT_DETAIL_LOADS
@@ -47,10 +48,16 @@ from ..serializers import (
     participants_of,
     section_read,
 )
+from ..uploads import (
+    EXERCISE_MEDIA_SIGNATURES,
+    read_upload,
+    remove_upload,
+    write_upload,
+)
 
 # Общие с публичной частью агрегаты по курсу (число секций/пройденных) —
 # считаем их одинаково в админке и в кабинете пользователя.
-from .course import course_list_items, completed_section_ids
+from .course import course_list_items
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
 
@@ -327,7 +334,7 @@ def create_course(
     db.add(course)
     db.commit()
     db.refresh(course)
-    return course_detail_read(course, set())
+    return course_detail_read(course)
 
 
 @router.get("/courses", response_model=list[AdminCourseList])
@@ -355,7 +362,7 @@ def get_course(
     if not course:
         raise HTTPException(status_code=404, detail="Курс не найден")
     # В админке прогресс конкретного пользователя не нужен — отдаём пустым.
-    return course_detail_read(course, set())
+    return course_detail_read(course)
 
 
 @router.put("/courses/{course_id}", response_model=CourseRead)
@@ -377,7 +384,7 @@ def update_course(
 
     db.commit()
     db.refresh(course)
-    return course_detail_read(course, set())
+    return course_detail_read(course)
 
 
 @router.delete("/courses/{course_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -536,13 +543,69 @@ def delete_exercise(
     db: Session = Depends(get_db),
     admin: User = Depends(require_admin),
 ):
-    """Удаление упражнения. Только админ."""
+    """Удаление упражнения вместе с его медиа. Только админ."""
     exercise = db.query(Exercise).filter(Exercise.id == exercise_id).first()
     if not exercise:
         raise HTTPException(status_code=404, detail="Упражнение не найдено")
 
+    # Сначала убираем файл, потом запись: если удаление файла не удалось,
+    # упражнение остаётся с рабочим медиа, а не со ссылкой в никуда.
+    remove_upload(exercise.media, settings.exercise_media_dir)
     db.delete(exercise)
     db.commit()
+
+
+@router.post("/exercises/{exercise_id}/media", response_model=ExerciseRead)
+async def upload_exercise_media(
+    exercise_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """Загрузить (или заменить) медиа упражнения: фото, GIF или видео.
+
+    Правила те же, что у аватара и фото собаки: формат определяем по
+    содержимому, имя файла генерирует сервер, старый файл удаляем только после
+    успешной записи нового.
+    """
+    exercise = db.query(Exercise).filter(Exercise.id == exercise_id).first()
+    if not exercise:
+        raise HTTPException(status_code=404, detail="Упражнение не найдено")
+
+    contents, extension, kind = await read_upload(
+        file, settings.MAX_EXERCISE_MEDIA_BYTES, EXERCISE_MEDIA_SIGNATURES
+    )
+    filename = write_upload(contents, extension, settings.exercise_media_dir)
+
+    remove_upload(exercise.media, settings.exercise_media_dir)
+
+    exercise.media = filename
+    exercise.media_type = kind
+    db.commit()
+    db.refresh(exercise)
+    return exercise
+
+
+@router.delete("/exercises/{exercise_id}/media", response_model=ExerciseRead)
+def delete_exercise_media(
+    exercise_id: int,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """Убрать медиа упражнения: файл удаляется, поля обнуляются.
+
+    Идемпотентно — повторный вызов у упражнения без медиа не ошибка.
+    """
+    exercise = db.query(Exercise).filter(Exercise.id == exercise_id).first()
+    if not exercise:
+        raise HTTPException(status_code=404, detail="Упражнение не найдено")
+
+    remove_upload(exercise.media, settings.exercise_media_dir)
+    exercise.media = None
+    exercise.media_type = "image"
+    db.commit()
+    db.refresh(exercise)
+    return exercise
 
 
 # ========================

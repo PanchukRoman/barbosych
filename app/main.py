@@ -41,7 +41,11 @@ async def lifespan(app: FastAPI):
     # личный кабинет работают, а загрузка аватара вернёт понятную 503
     # (см. routers/users.py). Так заведомо рабочая часть не блокируется
     # из-за прав на одну папку.
-    for upload_dir in (settings.avatar_dir, settings.dog_photo_dir):
+    for upload_dir in (
+        settings.avatar_dir,
+        settings.dog_photo_dir,
+        settings.exercise_media_dir,
+    ):
         try:
             upload_dir.mkdir(parents=True, exist_ok=True)
         except OSError as exc:

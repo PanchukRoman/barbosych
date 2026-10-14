@@ -284,7 +284,12 @@ class ExerciseUpdate(BaseModel):
 
 
 class ExerciseRead(BaseModel):
-    """Чтение упражнения."""
+    """Чтение упражнения.
+
+    completed/actual_seconds проставляет сервер для конкретного пользователя:
+    отметка «отработано» и фактическое время по таймеру (в админке — всегда
+    completed=False).
+    """
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -295,6 +300,11 @@ class ExerciseRead(BaseModel):
     description: str
     repetitions: str
     duration_minutes: int
+    # Медиа-подсказка: имя файла в /uploads/exercises и его вид (image/video).
+    media: str | None = None
+    media_type: str = "image"
+    completed: bool = False
+    actual_seconds: int = 0
 
 
 class SectionCreate(BaseModel):
@@ -314,10 +324,15 @@ class SectionUpdate(BaseModel):
 
 
 class SectionRead(BaseModel):
-    """Чтение секции вместе с комплексом упражнений.
+    """Чтение секции (прогулки) вместе с комплексом упражнений.
 
-    completed проставляет сервер для конкретного пользователя (в админке
-    остаётся False) — клиент не должен угадывать это по своим данным.
+    Прогресс, собаку и дневник проставляет сервер для конкретного пользователя
+    (в админке они пустые) — клиент не должен угадывать это по своим данным.
+
+    * completed — прогулка зачтена (заполнен completed_at);
+    * percent — доля выполненных упражнений прогулки (0..100);
+    * dog_id/dog_name — с какой собакой прогулку проходили;
+    * note/rating/weather/actual_minutes — дневник прогулки.
     """
 
     model_config = ConfigDict(from_attributes=True)
@@ -329,6 +344,17 @@ class SectionRead(BaseModel):
     description: str
     exercises: list[ExerciseRead] = Field(default_factory=list)
     completed: bool = False
+    completed_exercises: int = 0
+    total_exercises: int = 0
+    percent: int = 0
+    dog_id: int | None = None
+    dog_name: str | None = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    note: str = ""
+    rating: int | None = None
+    weather: str = ""
+    actual_minutes: int = 0
 
 
 class CourseCreate(BaseModel):
@@ -346,13 +372,20 @@ class CourseUpdate(BaseModel):
 
 
 class CourseList(BaseModel):
-    """Карточка курса для списка: прогресс считает сервер."""
+    """Карточка курса для списка: прогресс считает сервер.
+
+    completed_count — сколько прогулок зачтено целиком; percent считается по
+    упражнениям (честнее: выполнил 3 из 5 упражнений — это 60%, а не 0%).
+    """
 
     id: int
     title: str
     description: str
     sections_count: int
     completed_count: int
+    exercises_count: int = 0
+    completed_exercises_count: int = 0
+    percent: int = 0
 
 
 class AdminCourseList(CourseList):
@@ -370,14 +403,64 @@ class CourseRead(BaseModel):
     sections: list[SectionRead] = Field(default_factory=list)
 
 
+class ExerciseProgressRead(BaseModel):
+    """Отметка «упражнение отработано»."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    exercise_id: int
+    actual_seconds: int = 0
+    completed_at: datetime
+
+
 class SectionProgressRead(BaseModel):
-    """Отметка о пройденной секции."""
+    """Запись о прогулке: отметка прохождения плюс дневник."""
 
     model_config = ConfigDict(from_attributes=True)
 
     id: int
     section_id: int
-    completed_at: datetime
+    dog_id: int | None = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    note: str = ""
+    rating: int | None = None
+    weather: str = ""
+    actual_minutes: int = 0
+
+
+class ExerciseComplete(BaseModel):
+    """Тело POST /exercises/{id}/complete — фактическое время по таймеру."""
+
+    actual_seconds: int = Field(default=0, ge=0, le=24 * 3600)
+
+
+class SectionDiaryUpdate(BaseModel):
+    """Дневник прогулки (PUT /sections/{id}/progress).
+
+    Все поля необязательные: клиент шлёт только то, что меняет. Незаданное
+    поле остаётся как было (в роутере смотрим exclude_unset), а явный null
+    (например dog_id = null) очищает значение.
+    """
+
+    dog_id: int | None = Field(default=None, ge=1)
+    note: str | None = Field(default=None, max_length=2000)
+    rating: int | None = Field(default=None, ge=1, le=5)
+    weather: str | None = Field(default=None, max_length=50)
+    actual_minutes: int | None = Field(default=None, ge=0, le=24 * 60)
+
+
+class CourseStatsRead(BaseModel):
+    """Статистика прохождения курсов: серия, время, оценки."""
+
+    total_walks: int = 0
+    walks_this_week: int = 0
+    current_streak: int = 0
+    best_streak: int = 0
+    total_minutes: int = 0
+    completed_exercises: int = 0
+    average_rating: float | None = None
 
 
 class CourseEnrollmentRead(BaseModel):
